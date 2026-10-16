@@ -1,0 +1,947 @@
+diff --git a/assets/resource/robot/t800/xml/serial_links.xml b/assets/resource/robot/t800/xml/serial_links.xml
+index bd13b90..bbdd3c9 100644
+--- a/assets/resource/robot/t800/xml/serial_links.xml
++++ b/assets/resource/robot/t800/xml/serial_links.xml
+@@ -167,7 +167,14 @@
+         <joint name="J24_HEAD_YAW" pos="0 0 0" axis="0 0 1" range="-1.222 1.222" actuatorfrcrange="-52 52" armature="0.00671625"/>
+         <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HEAD_YAW" material="LINK_HEAD_YAW" class="visual"/>
+         <geom class="collision_head"/>
++        <!-- 相机姿态 euler="yaw pitch roll"，单位度，eulerseq="zyx" -->
++        <!-- yaw: 增大=看左边  pitch: 增大=抬头  roll: 增大=画面逆时针转 -->
++        <camera name="rgb_left"  pos="0.1 -0.03 0.08" quat="0.5 0.5 -0.5 -0.5" fovy="60"/>
++        <camera name="rgb_right" pos="0.1  0.03 0.08" quat="0.5 0.5 -0.5 -0.5" fovy="60"/>
++        <!-- Provisional simulation lidar centered between the eye anchors. -->
++        <camera name="depth" pos="0.1 0 0.08" quat="0.5 0.5 -0.5 -0.5" fovy="90"/>
++        <site name="lidar" pos="0.1 0 0.08" quat="0.5 0.5 -0.5 -0.5"/>
+       </body>
+     </body>
+   </body>
+-</mujoco>
+\ No newline at end of file
++</mujoco>
+diff --git a/assets/resource/robot/t800pro/xml/serial_links.xml b/assets/resource/robot/t800pro/xml/serial_links.xml
+index f7b13e6..f20665a 100644
+--- a/assets/resource/robot/t800pro/xml/serial_links.xml
++++ b/assets/resource/robot/t800pro/xml/serial_links.xml
+@@ -249,6 +249,19 @@
+         <inertial pos="0.0284863 0.0000417 0.0858035" mass="1.8880708" fullinertia="0.0081173 0.010487 0.0085738 -0.0000041 0.0015 -0.0000076"/>
+         <geom pos="0 0 0" group="1" contype="0" conaffinity="0" material="LINK_HEAD_YAW_mat" type="mesh" mesh="LINK_HEAD_YAW" />
+         <geom pos="0.0200123 0 0.084856" rgba="0.9373 0.2667 0.2667 1" group="3" contype="1" conaffinity="1" type="sphere" size="0.1" />
++        <!-- Provisional perception anchors added for stage-3 simulation.
++             Their poses are configurable/replaceable when the vendor calibration is available. -->
++        <camera name="rgb_left"  pos="0.1 -0.03 0.08" quat="0.5 0.5 -0.5 -0.5" fovy="60"/>
++        <camera name="rgb_right" pos="0.1  0.03 0.08" quat="0.5 0.5 -0.5 -0.5" fovy="60"/>
++        <!-- Provisional simulation lidar: centered between the two eye anchors.
++             This is a visual alignment value, not calibrated hardware extrinsics. -->
++        <camera name="depth" pos="0.1 0 0.08"
++                quat="0.5 0.5 -0.5 -0.5" fovy="90"/>
++        <site name="lidar" pos="0.1 0 0.08"
++              quat="0.5 0.5 -0.5 -0.5"/>
++        <!-- Typical vendor reference pose; replace with per-unit calibration on hardware. -->
++        <site name="o2s_imu" pos="0.051259 -0.02988 0.031395"
++              quat="0.997563 0 0.069758 0"/>
+       </body>
+     </body>
+   </body>
+diff --git a/docker/dockerfiles/.bashrc b/docker/dockerfiles/.bashrc
+index f4e1f71..ca74583 100644
+--- a/docker/dockerfiles/.bashrc
++++ b/docker/dockerfiles/.bashrc
+@@ -119,4 +119,5 @@ fi
+ source /opt/ros/humble/setup.bash
+ export ROS_LOCALHOST_ONLY=1
+ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
++export CYCLONEDDS_URI='<CycloneDDS xmlns="https://cdds.io/config"><Domain id="any"><Discovery><ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>100</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>'
+ export PATH="$PATH:$HOME/.local/bin"
+diff --git a/docker/dockerfiles/Dockerfile b/docker/dockerfiles/Dockerfile
+index 21089d4..32d5096 100644
+--- a/docker/dockerfiles/Dockerfile
++++ b/docker/dockerfiles/Dockerfile
+@@ -21,6 +21,21 @@ RUN mkdir -p ${USER_HOME} && \
+ COPY entrypoint.sh /
+ COPY .bashrc ${USER_HOME}
+ 
++RUN chmod 0755 /entrypoint.sh
++
++# Stage-3 navigation uses the Nav2 RViz panel, goal tool and particle display.
++# Keep this in the image so recreating the development container does not drop
++# the GUI plugins that were previously installed interactively.
++USER root
++RUN apt-get update && \
++    apt-get install -y --no-install-recommends \
++        ros-humble-navigation2 \
++        ros-humble-nav2-bringup \
++        ros-humble-nav2-rviz-plugins \
++        ros-humble-pointcloud-to-laserscan && \
++    rm -rf /var/lib/apt/lists/*
++RUN python3 -m pip install --no-cache-dir mujoco
++
+ USER ${USER_NAME}
+ ENV HOME=${USER_HOME}
+ 
+diff --git a/docker/dockerfiles/docker-compose.yml b/docker/dockerfiles/docker-compose.yml
+index beb6c38..17fe008 100644
+--- a/docker/dockerfiles/docker-compose.yml
++++ b/docker/dockerfiles/docker-compose.yml
+@@ -16,7 +16,7 @@ services:
+     network_mode: host
+     pid: host
+     volumes:
+-      - "${DOCKER_XAUTHORITY}:/tmp/.docker.xauth:ro"
++      - "${DOCKER_XAUTHORITY}:/home/${USER_NAME}/.docker.xauth:ro"
+       - "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+       - "/home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh"
+       - "/home/${USER_NAME}/.gitconfig:/home/${USER_NAME}/.gitconfig"
+@@ -32,7 +32,7 @@ services:
+       - "/dev:/dev"
+     environment:
+       - DISPLAY=${DISPLAY}
+-      - XAUTHORITY=/tmp/.docker.xauth
++      - XAUTHORITY=/home/${USER_NAME}/.docker.xauth
+       - XMODIFIERS=${XMODIFIERS}
+       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+       - QT_IM_MODULE=${QT_IM_MODULE}
+diff --git a/docker/dockerfiles/env.sh b/docker/dockerfiles/env.sh
+index 21545b9..3af59eb 100644
+--- a/docker/dockerfiles/env.sh
++++ b/docker/dockerfiles/env.sh
+@@ -69,11 +69,11 @@ CID=$(${COMPOSE_CMD} ps -q)
+ user=$USER
+ 
+ if [ "$#" == "0" ]; then
+-    docker exec -it --user "$user" "$CID" bash -c "source /etc/profile; export XAUTHORITY=/tmp/.docker.xauth; export QT_X11_NO_MITSHM=1; bash"
++    docker exec -it --user "$user" "$CID" bash -c "source /etc/profile; export XAUTHORITY=/home/$user/.docker.xauth; export QT_X11_NO_MITSHM=1; bash"
+ else
+     if [ "$1" == "bash" ]; then
+-        docker exec -it --user "$user" "$CID" bash -c "source /etc/profile; export XAUTHORITY=/tmp/.docker.xauth; export QT_X11_NO_MITSHM=1; $* "
++        docker exec -it --user "$user" "$CID" bash -c "source /etc/profile; export XAUTHORITY=/home/$user/.docker.xauth; export QT_X11_NO_MITSHM=1; $* "
+     else
+-        docker exec --user "$user" "$CID" bash -c "source /etc/profile; export XAUTHORITY=/tmp/.docker.xauth; export QT_X11_NO_MITSHM=1; $* &"
++        docker exec --user "$user" "$CID" bash -c "source /etc/profile; export XAUTHORITY=/home/$user/.docker.xauth; export QT_X11_NO_MITSHM=1; $* &"
+     fi
+ fi
+diff --git a/docker/generate.sh b/docker/generate.sh
+index ee2f14e..e290f85 100755
+--- a/docker/generate.sh
++++ b/docker/generate.sh
+@@ -22,6 +22,12 @@ PROJECT_DIR="${SCRIPT_DIR}/dockers/${PROJECT_NAME}"
+ DOCKERFILES_DIR="${SCRIPT_DIR}/dockerfiles"
+ mkdir -p "${PROJECT_DIR}"
+ 
++# Docker creates a directory for a missing bind-mount source, which breaks Git
++# commands on the host. Ensure the expected config file exists first.
++if [ ! -e "${USER_HOME}/.gitconfig" ]; then
++  touch "${USER_HOME}/.gitconfig"
++fi
++
+ # --- Generate .env file for docker compose ---
+ cat > "${PROJECT_DIR}/.env" <<EOF
+ SOURCE_IMAGE=${SOURCE_IMAGE}
+diff --git a/simulation/mujoco/lidar_bridge.h b/simulation/mujoco/lidar_bridge.h
+new file mode 100644
+index 0000000..70d7d00
+--- /dev/null
++++ b/simulation/mujoco/lidar_bridge.h
+@@ -0,0 +1,333 @@
++#pragma once
++
++#include <mujoco/mujoco.h>
++#include <lcm/lcm-cpp.hpp>
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <cstdint>
++#include <cstdlib>
++#include <cstring>
++#include <iomanip>
++#include <locale>
++#include <sstream>
++#include <string>
++#include <vector>
++#include "lcm_param/lcm_param.h"
++
++// Physics-thread snapshot/placement bridge. CPU ray casting runs in a separate
++// process against these authoritative states; that process never advances physics.
++class LidarBridge {
++ public:
++  explicit LidarBridge(const data::LcmParam& param)
++      : lcm_("udpm://" + param.ip_port + "?ttl=" + std::to_string(param.multicast ? param.ttl : 0)) {
++    lcm_.subscribe("lidar/place", &LidarBridge::Place, this)->setQueueCapacity(1);
++    lcm_.subscribe("lidar/reset", &LidarBridge::Reset, this)->setQueueCapacity(1);
++    lcm_.subscribe("lidar/rays_debug", &LidarBridge::DebugRays, this)->setQueueCapacity(1);
++    if (const char* value = std::getenv("ENGINEAI_LIDAR_IMU_RATE_HZ")) {
++      char* end = nullptr;
++      const double requested = std::strtod(value, &end);
++      if (end != value && *end == '\0' && std::isfinite(requested) &&
++          requested >= 20.0 && requested <= 350.0) {
++        imu_rate_hz_ = requested;
++      }
++    }
++  }
++
++  ~LidarBridge() {
++    if (debug_scene_initialized_) mjv_freeScene(&debug_scene_);
++  }
++
++  mjvScene* DebugScene() { return &debug_scene_; }
++
++  // Called before every physics step. Placement happens in this same world.
++  void BeforeStep(const mjModel* model, mjData* data) {
++    model_ = model;
++    data_ = data;
++    if (initial_qpos_.empty()) {
++      initial_qpos_.assign(data->qpos, data->qpos + model->nq);
++      initial_mocap_pos_.assign(data->mocap_pos, data->mocap_pos + 3 * model->nmocap);
++      initial_mocap_quat_.assign(data->mocap_quat, data->mocap_quat + 4 * model->nmocap);
++    }
++    for (int i = 0; i < 4 && lcm_.handleTimeout(0) > 0; ++i) {}
++    if (pending_reset_ > 0 && !initial_qpos_.empty()) {
++      const int sequence = pending_reset_;
++      pending_reset_ = 0;
++      mj_resetData(model, data);
++      mju_copy(data->qpos, initial_qpos_.data(), model->nq);
++      if (model->nmocap > 0) {
++        mju_copy(data->mocap_pos, initial_mocap_pos_.data(), 3 * model->nmocap);
++        mju_copy(data->mocap_quat, initial_mocap_quat_.data(), 4 * model->nmocap);
++      }
++      mj_forward(model, data);
++      last_sim_ = -1e30;
++      last_wall_ = 0;
++      // mj_resetData rewinds simulation time.  Reset both sides of the IMU
++      // scheduler as well; otherwise next_imu_sim_ remains in the previous
++      // timeline and suppresses IMU publication until that time is reached.
++      next_imu_sim_ = data->time;
++      last_imu_sim_ = -1e30;
++      last_imu_wall_ = 0;
++      const std::string ack = "RESET_ACK1 " + std::to_string(sequence);
++      lcm_.publish("lidar/reset_ack", ack.data(), ack.size());
++    }
++    // Explicit visualization-only mode. During the normal startup hold this
++    // animates the real T800 Pro head joints without enabling walking control.
++    const char* sweep = std::getenv("ENGINEAI_LIDAR_HEAD_SWEEP");
++    if (sweep && std::string(sweep) == "1") {
++      const int pitch = mj_name2id(model, mjOBJ_JOINT, "J41_HEAD_PITCH");
++      const int yaw = mj_name2id(model, mjOBJ_JOINT, "J42_HEAD_YAW");
++      if (pitch >= 0 && yaw >= 0) {
++        if (sweep_start_ <= 0) sweep_start_ = WallSeconds();
++        const double elapsed = WallSeconds() - sweep_start_;
++        data->qpos[model->jnt_qposadr[pitch]] = 0.10 * std::sin(0.25 * elapsed);
++        data->qpos[model->jnt_qposadr[yaw]] = 0.52 * std::sin(0.50 * elapsed);
++        data->qvel[model->jnt_dofadr[pitch]] = 0;
++        data->qvel[model->jnt_dofadr[yaw]] = 0;
++        mj_forward(model, data);
++      }
++    }
++  }
++
++  void AfterStep(const mjModel* model, mjData* data) {
++    const double wall = WallSeconds();
++    if (data->time < last_sim_) {
++      last_sim_ = -1e30;
++      next_imu_sim_ = data->time;
++    }
++    PublishHeadImu(model, data, wall);
++    // While headless simulation waits for SDK position control, simulation
++    // time is intentionally frozen. Still publish the stationary sensor pose
++    // at wall-clock rate so perception can become ready before walking starts.
++    if (data->time >= last_sim_ && data->time - last_sim_ < 0.1 &&
++        wall - last_wall_ < 0.1) return;
++    last_sim_ = data->time;
++    last_wall_ = wall;
++    // The stage-3 depth camera is used only as the rigid lidar mount frame here.
++    const int sensor_mount = mj_name2id(model, mjOBJ_CAMERA, "depth");
++    const int base = mj_name2id(model, mjOBJ_BODY, "LINK_BASE");
++    const int head_pitch = mj_name2id(model, mjOBJ_BODY, "LINK_HEAD_PITCH");
++    const int head_yaw = mj_name2id(model, mjOBJ_BODY, "LINK_HEAD_YAW");
++    const int head_imu = mj_name2id(model, mjOBJ_SITE, "o2s_imu");
++    const int scene = mj_name2id(model, mjOBJ_TEXT, "lidar_scenario");
++    if (sensor_mount < 0 || base < 0 || head_pitch < 0 || head_yaw < 0 || head_imu < 0) return;
++    const std::string scenario = scene < 0
++        ? "default"
++        : std::string(model->text_data + model->text_adr[scene]);
++    if (scenario != "default" && scenario != "wall" && scenario != "scan" && scenario != "sudden" &&
++        scenario != "stage3_office" && scenario != "stage3_warehouse" &&
++        scenario != "stage3_mixed") return;
++    const int box = mj_name2id(model, mjOBJ_BODY, "sudden_obstacle");
++    const int mocap = box < 0 ? -1 : model->body_mocapid[box];
++    const bool placed = mocap >= 0 && data->mocap_pos[3*mocap+2] > 0;
++    bool scenario_collision = false;
++    for (int i = 0; i < data->ncon; ++i) {
++      const int g1 = data->contact[i].geom1;
++      const int g2 = data->contact[i].geom2;
++      if ((model->geom_group[g1] == 5) != (model->geom_group[g2] == 5)) {
++        scenario_collision = true;
++        break;
++      }
++    }
++    mj_kinematics(model, data);
++    mj_camlight(model, data);
++    UpdateDebugScene(model, data, sensor_mount, wall);
++    const mjtNum* p = data->xpos + 3 * base;
++    const mjtNum* r = data->xmat + 9 * base;
++    std::ostringstream out;
++    out.imbue(std::locale::classic());
++    out << std::setprecision(16) << "{\"version\":3,\"scenario\":\"" << scenario
++        << "\",\"native_version\":\"" << mj_versionString() << "\",\"stamp\":" << wall
++        << ",\"sim_time\":" << data->time << ",\"pose\":[" << p[0] << ',' << p[1] << ','
++        << std::atan2(r[3], r[0]) << "],\"height\":" << p[2] << ",\"upright\":" << r[8]
++        << ",\"placed\":" << (placed ? "true" : "false")
++        << ",\"collision\":" << (scenario_collision ? "true" : "false")
++        << ",\"ngeom\":" << model->ngeom;
++    const auto array = [&out](const char* name, const mjtNum* values, int count) {
++      out << ",\"" << name << "\":[";
++      for (int i = 0; i < count; ++i) {
++        if (i) out << ',';
++        out << values[i];
++      }
++      out << ']';
++    };
++    array("origin", data->cam_xpos + 3*sensor_mount, 3);
++    array("sensor_matrix", data->cam_xmat + 9*sensor_mount, 9);
++    array("base_origin", data->xpos + 3*base, 3);
++    array("base_matrix", data->xmat + 9*base, 9);
++    array("head_pitch_origin", data->xpos + 3*head_pitch, 3);
++    array("head_pitch_matrix", data->xmat + 9*head_pitch, 9);
++    array("head_yaw_origin", data->xpos + 3*head_yaw, 3);
++    array("head_yaw_matrix", data->xmat + 9*head_yaw, 9);
++    array("head_imu_origin", data->site_xpos + 3*head_imu, 3);
++    array("head_imu_matrix", data->site_xmat + 9*head_imu, 9);
++    array("qpos", data->qpos, model->nq);
++    array("qvel", data->qvel, model->nv);
++    array("mocap_pos", data->mocap_pos, 3*model->nmocap);
++    array("mocap_quat", data->mocap_quat, 4*model->nmocap);
++    // Mirror runtime edits to the scenario obstacle geometry as well as mocap.
++    out << ",\"geoms\":[";
++    bool first = true;
++    for (int g = 0; g < model->ngeom; ++g) {
++      if (model->geom_group[g] != 5) continue;
++      if (!first) out << ',';
++      first = false;
++      out << '[' << g;
++      for (int i = 0; i < 3; ++i) out << ',' << model->geom_pos[3*g+i];
++      for (int i = 0; i < 4; ++i) out << ',' << model->geom_quat[4*g+i];
++      for (int i = 0; i < 3; ++i) out << ',' << model->geom_size[3*g+i];
++      out << ']';
++    }
++    out << "]}";
++    const auto bytes = out.str();
++    lcm_.publish("lidar/state", bytes.data(), bytes.size());
++  }
++
++ private:
++  static double WallSeconds() {
++    return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
++  }
++  void UpdateDebugScene(const mjModel* model, const mjData* data,
++                        int sensor_mount, double wall) {
++    if (!debug_scene_initialized_) {
++      mjv_defaultScene(&debug_scene_);
++      mjv_makeScene(model, &debug_scene_, 500);
++      debug_scene_initialized_ = true;
++    }
++    if (wall - debug_rays_stamp_ > 0.5 || debug_ray_endpoints_.empty()) {
++      debug_scene_.ngeom = 0;
++      return;
++    }
++    const int count = std::min<int>(debug_ray_endpoints_.size() / 3,
++                                    debug_scene_.maxgeom);
++    debug_scene_.ngeom = count;
++    const mjtNum* origin = data->cam_xpos + 3 * sensor_mount;
++    const mjtNum* rotation = data->cam_xmat + 9 * sensor_mount;
++    const float color[4] = {0.0f, 0.85f, 1.0f, 0.45f};
++    for (int index = 0; index < count; ++index) {
++      const float x = debug_ray_endpoints_[3*index];
++      const float y = debug_ray_endpoints_[3*index+1];
++      const float z = debug_ray_endpoints_[3*index+2];
++      // ROS lidar (+X forward, +Y left, +Z up) to MuJoCo camera
++      // coordinates (+X right, +Y up, -Z forward).
++      const mjtNum camera[3] = {-y, z, -x};
++      mjtNum endpoint[3] = {
++          origin[0] + rotation[0]*camera[0] + rotation[1]*camera[1] + rotation[2]*camera[2],
++          origin[1] + rotation[3]*camera[0] + rotation[4]*camera[1] + rotation[5]*camera[2],
++          origin[2] + rotation[6]*camera[0] + rotation[7]*camera[1] + rotation[8]*camera[2]};
++      mjvGeom* geom = debug_scene_.geoms + index;
++      mjv_initGeom(geom, mjGEOM_LINE, nullptr, nullptr, nullptr, color);
++      mjv_makeConnector(geom, mjGEOM_LINE, 1.0, origin[0], origin[1], origin[2],
++                        endpoint[0], endpoint[1], endpoint[2]);
++    }
++  }
++  void PublishHeadImu(const mjModel* model, const mjData* data, double wall) {
++    const double period = 1.0 / imu_rate_hz_;
++    if (next_imu_sim_ < -1e20) next_imu_sim_ = data->time;
++    const bool simulation_advanced = data->time > last_imu_sim_ + 1e-12;
++    if (simulation_advanced) {
++      if (data->time + 1e-12 < next_imu_sim_) return;
++      do next_imu_sim_ += period; while (next_imu_sim_ <= data->time);
++    } else if (wall - last_imu_wall_ < period) {
++      return;
++    }
++    last_imu_sim_ = data->time;
++    last_imu_wall_ = wall;
++
++    const int quaternion = mj_name2id(model, mjOBJ_SENSOR, "o2s_imu_quaternion");
++    const int acceleration = mj_name2id(model, mjOBJ_SENSOR, "o2s_imu_linear_acceleration");
++    const int angular_velocity = mj_name2id(model, mjOBJ_SENSOR, "o2s_imu_angular_velocity");
++    if (quaternion < 0 || acceleration < 0 || angular_velocity < 0) return;
++    const mjtNum* q = data->sensordata + model->sensor_adr[quaternion];
++    const mjtNum* a = data->sensordata + model->sensor_adr[acceleration];
++    const mjtNum* w = data->sensordata + model->sensor_adr[angular_velocity];
++    std::ostringstream out;
++    out.imbue(std::locale::classic());
++    out << std::setprecision(16) << "{\"version\":1,\"stamp\":" << wall
++        << ",\"sim_time\":" << data->time << ",\"quaternion_wxyz\":["
++        << q[0] << ',' << q[1] << ',' << q[2] << ',' << q[3]
++        << "],\"linear_acceleration\":[" << a[0] << ',' << a[1] << ',' << a[2]
++        << "],\"angular_velocity\":[" << w[0] << ',' << w[1] << ',' << w[2] << "]}";
++    const auto bytes = out.str();
++    lcm_.publish("lidar/imu", bytes.data(), bytes.size());
++  }
++  void Place(const lcm::ReceiveBuffer* buffer, const std::string&) {
++    if (!model_ || !data_ || buffer->data_size > 100) return;
++    std::istringstream in(std::string(static_cast<const char*>(buffer->data), buffer->data_size));
++    in.imbue(std::locale::classic());
++    std::string tag, extra;
++    double stamp;
++    int side;
++    if (!(in >> tag >> stamp >> side) || (in >> extra) || tag != "PLACE1" ||
++        !std::isfinite(stamp) || WallSeconds() - stamp > 0.5 || stamp - WallSeconds() > 0.1 ||
++        stamp <= last_place_ || (side != -1 && side != 1)) return;
++    const int obstacle = mj_name2id(model_, mjOBJ_BODY, "sudden_obstacle");
++    const int base = mj_name2id(model_, mjOBJ_BODY, "LINK_BASE");
++    if (obstacle < 0 || base < 0) return;
++    const int mocap = model_->body_mocapid[obstacle];
++    if (mocap < 0) return;
++    const mjtNum* p = data_->xpos + 3 * base;
++    const mjtNum* r = data_->xmat + 9 * base;
++    const double yaw = std::atan2(r[3], r[0]);
++    // The sudden-scene robot starts 3 m behind its former position. Place the
++    // box at the former world location: 4.05 m ahead and 0.65 m to either side
++    // of the shifted robot, so detection precedes the 1.25 m stop threshold.
++    data_->mocap_pos[3*mocap] = p[0] + 4.05*std::cos(yaw) - side*0.65*std::sin(yaw);
++    data_->mocap_pos[3*mocap+1] = p[1] + 4.05*std::sin(yaw) + side*0.65*std::cos(yaw);
++    data_->mocap_pos[3*mocap+2] = 1.0;
++    last_place_ = stamp;
++  }
++  void Reset(const lcm::ReceiveBuffer* buffer, const std::string&) {
++    if (buffer->data_size > 100) return;
++    std::istringstream in(std::string(static_cast<const char*>(buffer->data), buffer->data_size));
++    in.imbue(std::locale::classic());
++    std::string tag, extra;
++    double stamp;
++    int sequence;
++    if (!(in >> tag >> stamp >> sequence) || (in >> extra) || tag != "RESET1" ||
++        !std::isfinite(stamp) || WallSeconds() - stamp > 0.5 || stamp - WallSeconds() > 0.1 ||
++        stamp <= last_reset_ || sequence <= 0) return;
++    last_reset_ = stamp;
++    pending_reset_ = sequence;
++  }
++  void DebugRays(const lcm::ReceiveBuffer* buffer, const std::string&) {
++    constexpr std::uint32_t magic_expected = 0x3156524c;
++    constexpr std::size_t header_size = sizeof(std::uint32_t) + sizeof(double) + sizeof(std::uint32_t);
++    if (buffer->data_size < static_cast<int>(header_size)) return;
++    const auto* bytes = static_cast<const std::uint8_t*>(buffer->data);
++    std::uint32_t magic = 0, count = 0;
++    double stamp = 0;
++    std::memcpy(&magic, bytes, sizeof(magic));
++    std::memcpy(&stamp, bytes + sizeof(magic), sizeof(stamp));
++    std::memcpy(&count, bytes + sizeof(magic) + sizeof(stamp), sizeof(count));
++    if (magic != magic_expected || count > 500 || !std::isfinite(stamp) ||
++        buffer->data_size != static_cast<int>(header_size + count * 3 * sizeof(float)) ||
++        WallSeconds() - stamp > 0.5 || stamp - WallSeconds() > 0.1) return;
++    debug_ray_endpoints_.resize(count * 3);
++    std::memcpy(debug_ray_endpoints_.data(), bytes + header_size,
++                count * 3 * sizeof(float));
++    for (float value : debug_ray_endpoints_) {
++      if (!std::isfinite(value)) {
++        debug_ray_endpoints_.clear();
++        return;
++      }
++    }
++    debug_rays_stamp_ = stamp;
++  }
++  lcm::LCM lcm_;
++  const mjModel* model_ = nullptr;
++  mjData* data_ = nullptr;
++  double last_sim_ = -1e30, last_wall_ = 0, last_place_ = 0, last_reset_ = 0;
++  double next_imu_sim_ = -1e30;
++  double last_imu_sim_ = -1e30, last_imu_wall_ = 0;
++  // The documented module rate remains the default. CPU-constrained simulation
++  // can explicitly lower it without changing the real-hardware target.
++  double imu_rate_hz_ = 350.0;
++  double sweep_start_ = 0;
++  int pending_reset_ = 0;
++  mjvScene debug_scene_{};
++  bool debug_scene_initialized_ = false;
++  double debug_rays_stamp_ = 0;
++  std::vector<float> debug_ray_endpoints_;
++  std::vector<mjtNum> initial_qpos_, initial_mocap_pos_, initial_mocap_quat_;
++};
+diff --git a/simulation/mujoco/main.cc b/simulation/mujoco/main.cc
+index 5a02bbe..b716248 100644
+--- a/simulation/mujoco/main.cc
++++ b/simulation/mujoco/main.cc
+@@ -20,6 +20,7 @@
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
++#include <csignal>
+ #include <iostream>
+ #include <memory>
+ #include <mutex>
+@@ -35,6 +36,7 @@
+ #include "lcm_interface/lcm_publisher.h"
+ #include "lcm_interface/lcm_subscriber.h"
+ #include "lcm_param/lcm_param.h"
++#include "lidar_bridge.h"
+ #include "model_param/model_param.h"
+ #include "parameter/global_config_initializer.h"
+ #include "parameter/parameter_loader.h"
+@@ -58,6 +60,8 @@ using namespace std::chrono_literals;
+ 
+ namespace {
+ std::shared_ptr<LcmDataStore> lcm_data_store;
++std::unique_ptr<LidarBridge> lidar_bridge;
++volatile std::sig_atomic_t lidar_headless_running = 1;
+ const constexpr auto kBusyWaitTime = 100us;
+ const constexpr int kDofFloatingBase = 6;
+ const constexpr int kNumFloatingBaseJoints = 7;
+@@ -486,7 +490,9 @@ void PhysicsLoop(mj::Simulate& sim) {
+             sim.speed_changed = false;
+ 
+             // run single step, let next iteration deal with timing
++            if (lidar_bridge) lidar_bridge->BeforeStep(m, d);
+             mj_step(m, d);
++            if (lidar_bridge) lidar_bridge->AfterStep(m, d);
+             UpdateSimState(m, d);
+             const char* message = Diverged(m->opt.disableflags, d);
+             if (message) {
+@@ -517,7 +523,9 @@ void PhysicsLoop(mj::Simulate& sim) {
+               sim.InjectNoise();
+ 
+               // call mj_step
++              if (lidar_bridge) lidar_bridge->BeforeStep(m, d);
+               mj_step(m, d);
++              if (lidar_bridge) lidar_bridge->AfterStep(m, d);
+               UpdateSimState(m, d);
+               const char* message = Diverged(m->opt.disableflags, d);
+               if (message) {
+@@ -549,8 +557,8 @@ void PhysicsLoop(mj::Simulate& sim) {
+       }
+     }  // release std::lock_guard<std::mutex>
+     auto elapsed = loop_timer.GetElapsedSeconds();
+-    if (elapsed > m->opt.timestep) {
+-      LOG(WARNING) << "Physics loop took too long: " << elapsed << " s"
++    if (m && elapsed > m->opt.timestep) {
++      LOG_EVERY_T(WARNING, 1.0) << "Physics loop took too long: " << elapsed << " s"
+                    << ", Current timestep: " << m->opt.timestep << " s";
+     }
+   }
+@@ -568,6 +576,17 @@ void PhysicsThread(mj::Simulate* sim, const char* filename) {
+       // lock the sim mutex
+       const std::unique_lock<std::recursive_mutex> lock(sim->mtx);
+ 
++      // Group 5 is intentionally reserved for ray-cast scenario geometry, but
++      // some MuJoCo UI configurations hide high-numbered geom groups. Static
++      // preview instances do not publish lidar, so remap only their display
++      // geometry to the normally visible group 2.
++      if (const char* preview = std::getenv("ENGINEAI_LIDAR_VISUAL_ONLY");
++          preview && std::string(preview) == "1") {
++        for (int geom = 0; geom < m->ngeom; ++geom) {
++          if (m->geom_group[geom] == 5) m->geom_group[geom] = 2;
++        }
++      }
++
+       d = mj_makeData(m);
+     }
+     if (d) {
+@@ -627,9 +646,29 @@ int main(int argc, char** argv) {
+   }
+ 
+   // Initializes global config path
+-  InitMain(argc, argv);
++  if (!InitMain(argc, argv)) return 1;
+   data::ModelParam model_param;
+   std::string filename = common::PathJoin(common::GlobalPathManager::GetInstance().GetResourcePath(), model_param.xml);
++  if (const char* scene = std::getenv("ENGINEAI_LIDAR_SCENE")) {
++    if (argc < 2 || (std::string(argv[1]) != "t800" && std::string(argv[1]) != "t800pro")) {
++      LOG(ERROR) << "Lidar scenarios require the explicit robot argument t800 or t800pro";
++      return 1;
++    }
++    const std::string name(scene);
++    if (name != "wall" && name != "scan" && name != "sudden" &&
++        name != "stage3_office" && name != "stage3_warehouse" && name != "stage3_mixed") {
++      LOG(ERROR) << "ENGINEAI_LIDAR_SCENE must be wall, scan, sudden, stage3_office, "
++                    "stage3_warehouse or stage3_mixed";
++      return 1;
++    }
++    const std::string robot(argv[1]);
++    if (name.rfind("stage3_", 0) == 0 && robot != "t800pro") {
++      LOG(ERROR) << "Stage-3 mapping scenes are defined for t800pro only";
++      return 1;
++    }
++    filename = common::PathJoin(common::GlobalPathManager::GetInstance().GetResourcePath(),
++                                robot + "_lidar_" + name + ".xml");
++  }
+ 
+   int num_contacts = model_param.contact.size();
+   int num_single_contact_dimensions = single_contact_dimensions_map.at(model_param.contact[0].type);
+@@ -638,6 +677,13 @@ int main(int argc, char** argv) {
+ 
+   // Initializes LCM subscriber and publisher
+   data::LcmParam lcm_param;
++  // Sensor transport is part of the T800/T800 Pro simulator, not a special
++  // navigation scene.  Scenario selection only changes the loaded world.
++  // Keeping this bridge active for the default model lets independent ROS 2
++  // sensor packages attach after MuJoCo has already started.
++  if (argc > 1 && (std::string(argv[1]) == "t800" || std::string(argv[1]) == "t800pro")) {
++    lidar_bridge = std::make_unique<LidarBridge>(lcm_param);
++  }
+   std::shared_ptr<LcmSubscriber> lcm_subscriber = std::make_shared<LcmSubscriber>(lcm_param, lcm_data_store);
+   lcm_subscriber->TaskCreate();
+   lcm_subscriber->TaskInit();
+@@ -656,6 +702,7 @@ int main(int argc, char** argv) {
+ 
+   mjvOption opt;
+   mjv_defaultOption(&opt);
++  opt.geomgroup[5] = 1;  // Lidar scenario obstacles.
+ 
+   mjvPerturb pert;
+   mjv_defaultPerturb(&pert);
+@@ -663,9 +710,85 @@ int main(int argc, char** argv) {
+   // install control callback
+   mjcb_control = TorqueController;
+ 
++  // VM mode: SDK-controlled physics without the interactive 3D window.
++  // The separate CPU ray-lidar process does not require an OpenGL context.
++  const char* headless = std::getenv("ENGINEAI_LIDAR_HEADLESS");
++  if (headless && std::string(headless) == "1") {
++    if (!lidar_bridge) {
++      LOG(ERROR) << "Headless mode requires ENGINEAI_LIDAR_SCENE";
++      return 1;
++    }
++    char error[1024] = {};
++    m = mj_loadXML(filename.c_str(), nullptr, error, sizeof(error));
++    if (!m) {
++      LOG(ERROR) << error;
++      return 1;
++    }
++    if (m->nu != model_param.num_total_joints || m->nq != m->nu + 7) {
++      LOG(ERROR) << "Scenario joint layout does not match T800 SDK configuration";
++      mj_deleteModel(m);
++      return 1;
++    }
++    d = mj_makeData(m);
++    if (const char* scene = std::getenv("ENGINEAI_LIDAR_SCENE");
++        scene && std::string(scene) == "sudden") {
++      // Start three metres behind the original world origin. The sudden box
++      // keeps its original world placement so it appears well before contact.
++      d->qpos[0] -= 3.0;
++    }
++    mj_forward(m, d);
++    std::signal(SIGINT, [](int) { lidar_headless_running = 0; });
++    std::signal(SIGTERM, [](int) { lidar_headless_running = 0; });
++    LOG(INFO) << "Headless setup: holding initial pose until SDK position control is active";
++    bool control_started = false;
++    while (lidar_headless_running) {
++      if (!control_started) {
++        const auto command = lcm_data_store->sim_command();
++        control_started = command.kp.size() > 0 && command.kp.allFinite() && command.kp.maxCoeff() > 1.0;
++        if (!control_started) {
++          // Publish initial sensors so the SDK can enter pd_stand before gravity
++          // is integrated. This startup hold is never reapplied during an experiment.
++          lidar_bridge->BeforeStep(m, d);
++          lidar_bridge->AfterStep(m, d);
++          UpdateSimState(m, d);
++          std::this_thread::sleep_for(20ms);
++          continue;
++        }
++        LOG(INFO) << "SDK position control received; starting headless physics";
++      }
++      const auto next = std::chrono::steady_clock::now() +
++          std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(m->opt.timestep));
++      lidar_bridge->BeforeStep(m, d);
++      mj_step(m, d);
++      lidar_bridge->AfterStep(m, d);
++      UpdateSimState(m, d);
++      if (const char* message = Diverged(m->opt.disableflags, d)) {
++        LOG(ERROR) << message;
++        break;
++      }
++      std::this_thread::sleep_until(next);
++    }
++    mj_deleteData(d);
++    mj_deleteModel(m);
++    return 0;
++  }
++
+   // Simulates object encapsulates the UI
+   auto sim =
+       std::make_unique<mj::Simulate>(std::make_unique<mj::GlfwAdapter>(), &cam, &opt, &pert, /* is_passive = */ false);
++  if (lidar_bridge) sim->user_scn = lidar_bridge->DebugScene();
++  // Allow several scene windows to be compared safely. In preview mode the
++  // physics loop stays paused, so duplicate instances cannot fall or publish
++  // competing simulated sensor streams.
++  if (const char* preview = std::getenv("ENGINEAI_LIDAR_VISUAL_ONLY");
++      preview && std::string(preview) == "1") {
++    sim->run = 0;
++    sim->pause_update = 1;
++    for (int group = 0; group < mjNGROUP; ++group) {
++      sim->opt.geomgroup[group] = 1;
++      sim->opt.sitegroup[group] = 1;
++    }
++  }
+ 
+   // Starts physics thread
+   std::thread physicsthreadhandle(&PhysicsThread, sim.get(), filename.c_str());
+diff --git a/simulation/mujoco/simulate/simulate.cc b/simulation/mujoco/simulate/simulate.cc
+index b0e5701..2048fef 100644
+--- a/simulation/mujoco/simulate/simulate.cc
++++ b/simulation/mujoco/simulate/simulate.cc
+@@ -1955,6 +1955,22 @@ void Simulate::Sync() {
+   // update scene
+   if (!is_passive_) {
+     mjv_updateScene(m_, d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
++    // Append caller-provided debug geoms in the interactive (active) viewer as
++    // well. Upstream only merges user_scn in passive mode, but this simulator
++    // uses the active viewer and needs it for sampled lidar-ray visualization.
++    if (user_scn) {
++      int ngeom = user_scn->ngeom;
++      int maxgeom = scn.maxgeom - scn.ngeom;
++      if (ngeom > maxgeom) {
++        mj_warning(d_, mjWARN_VGEOMFULL, scn.maxgeom);
++        ngeom = maxgeom;
++      }
++      if (ngeom > 0) {
++        std::memcpy(scn.geoms + scn.ngeom, user_scn->geoms,
++                    sizeof(mjvGeom) * ngeom);
++        scn.ngeom += ngeom;
++      }
++    }
+   } else {
+     mjv_updateSceneState(m_, d_, &this->opt, &scnstate_);
+ 
+@@ -2467,6 +2483,10 @@ void Simulate::RenderLoop() {
+   // init abstract visualization
+   mjv_defaultCamera(&this->cam);
+   mjv_defaultOption(&this->opt);
++  // Group 5 is reserved for lidar scenario geometry.  The default option
++  // initialization above overwrites the caller-provided visualization flags,
++  // so enable the scenario group here after the reset for interactive runs.
++  this->opt.geomgroup[5] = 1;
+   InitializeProfiler(this);
+   InitializeSensor(this);
+ 
+diff --git a/src/runner/input_command_arbiter/include/input_command_arbiter/lidar_command_gate.h b/src/runner/input_command_arbiter/include/input_command_arbiter/lidar_command_gate.h
+new file mode 100644
+index 0000000..83379ab
+--- /dev/null
++++ b/src/runner/input_command_arbiter/include/input_command_arbiter/lidar_command_gate.h
+@@ -0,0 +1,90 @@
++#pragma once
++
++#include <chrono>
++#include <cmath>
++#include <cstdlib>
++#include <memory>
++#include <iomanip>
++#include <locale>
++#include <sstream>
++#include <string>
++#include <utility>
++#include <lcm/lcm-cpp.hpp>
++#include "gamepad_info/gamepad_info.h"
++#include "lcm_param/lcm_param.h"
++#include "variant_store/variant_store.h"
++
++namespace runner {
++// Explicit opt-in for the simulation experiment; no change to normal SDK operation.
++// Wire protocol used by the ROS 2 MuJoCo bridge and simulator integration.
++class LidarCommandGate {
++ public:
++  LidarCommandGate() {
++    const char* enabled = std::getenv("ENGINEAI_LIDAR_CONTROL");
++    enabled_ = enabled && std::string(enabled) == "1";
++    if (!enabled_) return;
++    data::LcmParam param;
++    lcm_ = std::make_unique<lcm::LCM>("udpm://" + param.ip_port + "?ttl=" +
++                                   std::to_string(param.multicast ? param.ttl : 0));
++    if (lcm_->good()) {
++      lcm_->subscribe("lidar/control", &LidarCommandGate::Receive, this)->setQueueCapacity(1);
++    }
++  }
++
++  void Apply(data::GamepadInfo& input, const std::string& motion) {
++    if (!enabled_) return;
++    if (lcm_->good()) {
++      for (int i = 0; i < 4 && lcm_->handleTimeout(0) > 0; ++i) {}
++    }
++    const double now = SteadySeconds();
++    const bool stop = stop_ || now - received_ > 0.5 || !lcm_->good();
++    // Digital keys stay available for stand/walk/passive transitions.
++    input.LeftStick_X = stop ? 0.0 : forward_;
++    input.LeftStick_Y = 0.0;
++    input.RightStick_X = 0.0;
++    input.RightStick_Y = stop ? 0.0 : yaw_;
++    data::VariantStore::GetInstance().Set("lidar/gate", std::make_pair(now, stop));
++    if (now - last_status_ >= 0.1 && lcm_->good()) {
++      last_status_ = now;
++      // Motion task names are fixed by SDK configuration; quote only known walk state.
++      std::ostringstream out;
++      out.imbue(std::locale::classic());
++      const double wall = std::chrono::duration<double>(
++          std::chrono::system_clock::now().time_since_epoch()).count();
++      out << std::setprecision(16) << "{\"version\":1,\"stamp\":" << wall
++          << ",\"stop\":" << (stop ? "true" : "false")
++          << ",\"walk\":" << (motion == "walk" ? "true" : "false")
++          << ",\"forward\":" << input.LeftStick_X << ",\"yaw\":" << input.RightStick_Y << "}";
++      const auto bytes = out.str();
++      lcm_->publish("lidar/gate_status", bytes.data(), bytes.size());
++    }
++  }
++
++ private:
++  static double SteadySeconds() {
++    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
++  }
++  void Receive(const lcm::ReceiveBuffer* buffer, const std::string&) {
++    if (buffer->data_size > 160) return;
++    std::istringstream in(std::string(static_cast<const char*>(buffer->data), buffer->data_size));
++    in.imbue(std::locale::classic());
++    std::string version, trailing;
++    double stamp, forward, yaw;
++    int stop;
++    if (!(in >> version >> stamp >> forward >> yaw >> stop) || (in >> trailing)) return;
++    const double wall = std::chrono::duration<double>(
++        std::chrono::system_clock::now().time_since_epoch()).count();
++    if (version != "LIDAR1" || !std::isfinite(stamp) || !std::isfinite(forward) ||
++        !std::isfinite(yaw) || std::abs(forward) > 0.7 || std::abs(yaw) > 1.0 ||
++        (stop != 0 && stop != 1) || wall - stamp > 0.5 || stamp - wall > 0.1 || stamp <= stamp_) return;
++    stamp_ = stamp;
++    received_ = SteadySeconds();
++    forward_ = forward;
++    yaw_ = yaw;
++    stop_ = stop != 0;
++  }
++  bool enabled_ = false, stop_ = true;
++  double received_ = -1e30, stamp_ = 0, last_status_ = 0, forward_ = 0, yaw_ = 0;
++  std::unique_ptr<lcm::LCM> lcm_;
++};
++}  // namespace runner
+diff --git a/tools/virtual_gamepad/ui/virtual_gamepad_widget.py b/tools/virtual_gamepad/ui/virtual_gamepad_widget.py
+index a66a315..ba8684f 100644
+--- a/tools/virtual_gamepad/ui/virtual_gamepad_widget.py
++++ b/tools/virtual_gamepad/ui/virtual_gamepad_widget.py
+@@ -90,12 +90,15 @@ class GamepadButton(QPushButton):
+ 
+ class VirtualGamepadWidget(QWidget):
+     STICK_KEYBOARD_STEP = 1
++    KEYBOARD_DRIVE_VALUE = 0.6
++    KEYBOARD_TURN_VALUE = 0.6
+ 
+     def __init__(self):
+         super().__init__()
+         self.gamepad_keys = GamepadKeys()
+         self.is_sending = False
+         self.should_send_macro_count = 0
++        self.pressed_movement_keys = set()
+         # set keyboard shortcuts
+         self.shortcuts = {
+             'A': Qt.Key.Key_J,
+@@ -106,10 +109,6 @@ class VirtualGamepadWidget(QWidget):
+             'RB': Qt.Key.Key_E,
+             'BACK': Qt.Key.Key_F1,
+             'START': Qt.Key.Key_F2,
+-            'CROSS_X_UP': Qt.Key.Key_W,
+-            'CROSS_X_DOWN': Qt.Key.Key_S,
+-            'CROSS_Y_LEFT': Qt.Key.Key_A,
+-            'CROSS_Y_RIGHT': Qt.Key.Key_D
+         }
+         self.stick_shortcuts = {
+             "Left": ("Left Stick Y", -self.STICK_KEYBOARD_STEP),
+@@ -122,6 +121,12 @@ class VirtualGamepadWidget(QWidget):
+             "Shift+Down": ("Right Stick X", -self.STICK_KEYBOARD_STEP),
+             "Space": None,
+         }
++        self.movement_keys = {
++            Qt.Key.Key_W: "forward",
++            Qt.Key.Key_S: "backward",
++            Qt.Key.Key_A: "left",
++            Qt.Key.Key_D: "right",
++        }
+ 
+         # set predefined macro combinations
+         self.macros = {
+@@ -251,7 +256,7 @@ class VirtualGamepadWidget(QWidget):
+         stick_layout = QHBoxLayout()
+ 
+         # Left Stick Group
+-        left_stick_group = QGroupBox("L (Arrow)")
++        left_stick_group = QGroupBox("L (W/S drive)")
+         left_stick_layout = QVBoxLayout()
+ 
+         # X axis for Left Stick
+@@ -280,7 +285,7 @@ class VirtualGamepadWidget(QWidget):
+         stick_layout.addWidget(left_stick_group)
+ 
+         # Right Stick Group
+-        right_stick_group = QGroupBox("R (Shift+Arrow)")
++        right_stick_group = QGroupBox("R (A/D turn)")
+         right_stick_layout = QVBoxLayout()
+ 
+         # X axis for Right Stick
+@@ -491,6 +496,7 @@ class VirtualGamepadWidget(QWidget):
+         self.gamepad_keys = GamepadKeys()
+         self.should_send_macro_count = 0
+         self.shortcut_states = {name: False for name in self.shortcuts}
++        self.pressed_movement_keys.clear()
+ 
+         for button, _ in self.button_map.values():
+             button.setDown(False)
+@@ -499,6 +505,17 @@ class VirtualGamepadWidget(QWidget):
+             slider.setValue(0)
+ 
+     def keyPressEvent(self, event):
++        if event.key() in self.movement_keys:
++            if not event.isAutoRepeat():
++                self.pressed_movement_keys.add(event.key())
++                self.apply_keyboard_drive()
++            event.accept()
++            return
++        if event.key() == Qt.Key.Key_Space:
++            self.pressed_movement_keys.clear()
++            self.reset_stick_values()
++            event.accept()
++            return
+         reverse_shortcuts = {v: k for k, v in self.shortcuts.items()}
+         if event.key() in reverse_shortcuts:
+             button_name = reverse_shortcuts[event.key()]
+@@ -506,12 +523,29 @@ class VirtualGamepadWidget(QWidget):
+         super().keyPressEvent(event)
+ 
+     def keyReleaseEvent(self, event):
++        if event.key() in self.movement_keys:
++            if not event.isAutoRepeat():
++                self.pressed_movement_keys.discard(event.key())
++                self.apply_keyboard_drive()
++            event.accept()
++            return
+         reverse_shortcuts = {v: k for k, v in self.shortcuts.items()}
+         if event.key() in reverse_shortcuts:
+             button_name = reverse_shortcuts[event.key()]
+             self.handle_shortcut_released(button_name)
+         super().keyReleaseEvent(event)
+ 
++    def apply_keyboard_drive(self):
++        """Apply held WASD keys and return each axis to zero on key release."""
++        forward = int(Qt.Key.Key_W in self.pressed_movement_keys)
++        backward = int(Qt.Key.Key_S in self.pressed_movement_keys)
++        left = int(Qt.Key.Key_A in self.pressed_movement_keys)
++        right = int(Qt.Key.Key_D in self.pressed_movement_keys)
++        drive = (forward - backward) * self.KEYBOARD_DRIVE_VALUE
++        turn = (right - left) * self.KEYBOARD_TURN_VALUE
++        self.left_stick_x.setValue(round(drive * 10))
++        self.right_stick_y.setValue(round(turn * 10))
++
+     def handle_shortcut_pressed(self, button_name):
+         if not self.shortcut_states.get(button_name, False):
+             self.shortcut_states[button_name] = True

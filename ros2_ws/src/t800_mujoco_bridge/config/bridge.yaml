@@ -1,0 +1,10 @@
+t800_mujoco_bridge:
+  ros__parameters:
+    lcm_url: "udpm://239.255.76.67:7667?ttl=1"
+    state_channel: "lidar/state"
+    command_timeout: 0.25
+    forward_scale: 1.0
+    yaw_scale: 1.0
+    imu_angular_velocity_noise_stddev: 0.0
+    imu_linear_acceleration_noise_stddev: 0.0
+    imu_dropout_probability: 0.0

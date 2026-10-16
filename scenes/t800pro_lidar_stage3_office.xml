@@ -1,0 +1,21 @@
+<mujoco model="t800pro_lidar_stage3_office">
+  <include file="robot/t800pro/xml/serial_t800pro.xml"/>
+  <include file="environment/stage3_ground.xml"/>
+  <custom><text name="lidar_scenario" data="stage3_office"/></custom>
+  <worldbody>
+    <site name="P00" type="cylinder" pos="0 0 0.02" size="0.18 0.02" rgba="0.15 0.85 0.25 1"/>
+    <site name="P01" type="cylinder" pos="4 -4 0.02" size="0.18 0.02" rgba="0.90 0.20 0.20 1"/>
+    <!-- 12 m x 10 m outer shell; robot starts in the open central lobby. -->
+    <geom name="office_north" type="box" pos="0 5 1.5" size="6 0.1 1.5" group="5" rgba="0.72 0.75 0.78 1"/>
+    <geom name="office_south" type="box" pos="0 -5 1.5" size="6 0.1 1.5" group="5" rgba="0.72 0.75 0.78 1"/>
+    <geom name="office_west" type="box" pos="-6 0 1.5" size="0.1 5 1.5" group="5" rgba="0.72 0.75 0.78 1"/>
+    <geom name="office_east" type="box" pos="6 0 1.5" size="0.1 5 1.5" group="5" rgba="0.72 0.75 0.78 1"/>
+    <!-- Two rooms with 1.4 m door openings. -->
+    <geom name="office_partition_w" type="box" pos="-3 1.5 1.5" size="3 0.1 1.5" group="5" rgba="0.55 0.62 0.70 1"/>
+    <geom name="office_partition_e" type="box" pos="4.7 1.5 1.5" size="1.3 0.1 1.5" group="5" rgba="0.55 0.62 0.70 1"/>
+    <geom name="office_t_wall" type="box" pos="-2.5 3.25 1.5" size="0.1 1.75 1.5" group="5" rgba="0.55 0.62 0.70 1"/>
+    <geom name="office_desk" type="box" pos="3.5 -2.6 0.55" size="0.8 0.45 0.55" group="5" rgba="0.45 0.28 0.14 1"/>
+    <geom name="office_cabinet" type="box" pos="-4.5 -3.6 1.0" size="0.45 0.8 1.0" group="5" rgba="0.35 0.40 0.45 1"/>
+    <geom name="office_column" type="cylinder" pos="2.2 3.2 1.5" size="0.25 1.5" group="5" rgba="0.85 0.65 0.25 1"/>
+  </worldbody>
+</mujoco>

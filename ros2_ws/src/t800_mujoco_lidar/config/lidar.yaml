@@ -1,0 +1,21 @@
+t800_mujoco_lidar:
+  ros__parameters:
+    lcm_url: "udpm://239.255.76.67:7667?ttl=1"
+    state_channel: "lidar/state"
+    robot_model: "t800pro"
+    model_path: ""
+    mount_camera: "depth"
+    frame_id: "lidar_link"
+    topic: "/lidar/points_raw"
+    horizontal_rays: 240
+    vertical_rays: 180
+    horizontal_fov_deg: 120.0
+    vertical_up_deg: 33.1
+    vertical_down_deg: 56.9
+    min_range_m: 0.2
+    max_range_m: 30.0
+    update_rate_hz: 10.0
+    state_timeout_s: 0.8
+    angular_stride: 1
+    visualize_rays_in_mujoco: true
+    max_visualized_rays: 500

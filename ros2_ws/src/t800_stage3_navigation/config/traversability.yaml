@@ -1,0 +1,22 @@
+glim_elevation_mapper:
+  ros__parameters:
+    input_topic: /glim_ros/map
+    map_topic: /map
+    elevation_topic: /elevation_map/points
+    resolution: 0.10
+    # Provisional simulation values. Replace them with measured T800 Pro limits.
+    max_step_height: 0.18
+    max_slope_deg: 30.0
+    max_roughness: 0.06
+    robot_clearance_height: 0.75
+    ground_band: 0.05
+    min_points_per_cell: 2
+    padding_cells: 2
+    ground_quantile: 0.15
+    ground_seed_bin: 0.05
+    ground_seed_tolerance: 0.12
+    # Preserve measured obstacle geometry in the map. Robot clearance belongs
+    # in Nav2's runtime inflation layer, not in the saved elevation map.
+    inflation_radius: 0.0
+    minimum_update_period: 1.0
+    save_path: /tmp/t800_25d_map

@@ -1,0 +1,29 @@
+P00:
+  x: 0.0000
+  y: 0.0000
+  yaw: 0.0000
+P01:
+  x: 1.2000
+  y: 0.0000
+  yaw: 0.0000
+
+# First commissioning run: deliberately short and in the open central area.
+simple_test:
+  start: P00
+  goal: P01
+
+# Formal route: door passage, upper rooms, east side, lower corridor, return.
+# Every point was checked against stage3_groundfix at >= 0.60 m from raw obstacles.
+acceptance_route:
+  - {name: P00, x: 0.0,  y: 0.0,  yaw: -1.57}
+  - {name: P02, x: 0.0,  y: -1.2, yaw: 3.14}
+  - {name: P03, x: -1.8, y: -1.2, yaw: 1.57}
+  - {name: P04, x: -2.0, y: 0.8,  yaw: 1.57}
+  - {name: P05, x: -1.9, y: 2.8,  yaw: 0.0}
+  - {name: P06, x: 0.8,  y: 3.8,  yaw: -1.57}
+  - {name: P07, x: 0.8,  y: 0.8,  yaw: 0.0}
+  - {name: P08, x: 4.5,  y: 0.5,  yaw: -1.57}
+  - {name: P09, x: 4.0,  y: -0.8, yaw: -1.57}
+  - {name: P10, x: 4.0,  y: -2.5, yaw: 3.14}
+  - {name: P11, x: 0.0,  y: -1.0, yaw: 1.57}
+  - {name: P00, x: 0.0,  y: 0.0,  yaw: 0.0}
