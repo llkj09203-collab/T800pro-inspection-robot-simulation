@@ -5,6 +5,12 @@ t800_mujoco_bridge:
     command_timeout: 0.25
     forward_scale: 1.0
     yaw_scale: 1.0
+    # Nav2 cmd_vel reference limits used to form a dimensionless direction.
+    linear_input_max: 0.5
+    angular_input_max: 0.5
+    yaw_input_deadzone: 0.08
+    # Normalized T800 walking-policy magnitude, not an SI velocity.
+    policy_command_magnitude: 0.5
     imu_angular_velocity_noise_stddev: 0.0
     imu_linear_acceleration_noise_stddev: 0.0
     imu_dropout_probability: 0.0

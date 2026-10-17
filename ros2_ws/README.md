@@ -1,7 +1,8 @@
 # T800 Pro 巡检机器人仿真开发（ROS 2）
 
 本工作区保存 T800 Pro 在 MuJoCo（机器人动力学仿真器）中的雷达、仿真桥接、
-建图导航和 RViz（ROS 可视化工具）配置。四部分彼此独立，可按任务组合启动。
+建图导航和 RViz（ROS 可视化工具）配置。仿真、控制器、遥控器、雷达、导航和
+可视化彼此独立，可按任务组合启动。场景只在仿真入口选择一次。
 `build/`、`install/`和`log/`是可重新生成的 Colcon 构建产物，不进入 Git。
 
 ## 构建
@@ -28,25 +29,42 @@ colcon test-result --verbose
 
 ## Stage3 导航启动
 
-先进入 EngineAI 开发容器，并在四个终端中依次执行：
+先进入 EngineAI 开发容器，并在六个终端中依次执行。每个 ROS 2 终端均先执行：
+
+```bash
+cd /home/llkj/engineai_robotics_native_sdk/ros2_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+```
+
+然后分别运行：
 
 ```bash
 # 终端 1：MuJoCo 仿真（选择 Stage3 场景）
-ENGINEAI_LIDAR_SCENE=stage3_mixed bash scripts/run_mujoco.sh t800pro
+ros2 launch t800_simulation stage3_mixed.launch.py
 
-# 终端 2：三维雷达
-cd ros2_ws && source /opt/ros/humble/setup.bash && source install/setup.bash
+# 终端 2：官方运动控制器（在 SDK 根目录运行）
+cd /home/llkj/engineai_robotics_native_sdk
+bash scripts/start_controller.sh
+
+# 终端 3：虚拟遥控器（在 SDK 根目录运行）
+cd /home/llkj/engineai_robotics_native_sdk
+bash scripts/start_gamepad.sh
+
+# 终端 4：三维雷达
 ros2 launch t800_mujoco_lidar lidar.launch.py
 
-# 终端 3：桥接、二维激光转换、定位和导航
-cd ros2_ws && source /opt/ros/humble/setup.bash && source install/setup.bash
-ros2 launch t800_stage3_navigation navigation.launch.py \
-  map:=$(pwd)/src/t800_stage3_navigation/maps/stage3_groundfix.yaml
+# 终端 5：桥接、二维激光转换、定位和导航
+# 地图根据终端 1 的活动场景自动选择，不再传 map 参数。
+ros2 launch t800_stage3_navigation navigation.launch.py
 
-# 终端 4：RViz
-cd ros2_ws && source /opt/ros/humble/setup.bash && source install/setup.bash
-ros2 launch t800_visualization rviz.launch.py
+# 终端 6：RViz（显示项由用户自行添加或打开已有配置）
+rviz2
 ```
+
+`navigation.launch.py` 只用于加载已有地图进行定位和导航。新场景尚无地图时，
+使用 `mapping.launch.py` 建图；RViz、雷达和其他显示功能不会因为缺少保存地图而
+报错。地图保存后，在 `config/scene_maps.yaml` 中登记一次即可供导航自动选择。
 
 当前结果用于仿真验证。雷达安装外参、噪声模型、运动控制精度和导航参数仍需在
 真机接口与标定数据明确后继续校准。

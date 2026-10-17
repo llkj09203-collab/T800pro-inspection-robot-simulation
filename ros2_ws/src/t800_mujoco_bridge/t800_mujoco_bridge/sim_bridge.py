@@ -60,9 +60,15 @@ class SimBridge(Node):
         self.declare_parameter("command_timeout", 0.25)
         self.declare_parameter("forward_scale", 1.0)
         self.declare_parameter("yaw_scale", 1.0)
+        self.declare_parameter("linear_input_max", 0.5)
+        self.declare_parameter("angular_input_max", 0.5)
+        self.declare_parameter("yaw_input_deadzone", 0.08)
+        self.declare_parameter("policy_command_magnitude", 0.5)
         self.declare_parameter("imu_angular_velocity_noise_stddev", 0.0)
         self.declare_parameter("imu_linear_acceleration_noise_stddev", 0.0)
         self.declare_parameter("imu_dropout_probability", 0.0)
+
+        self._validate_control_parameters()
 
         self.lc = lcm.LCM(self.get_parameter("lcm_url").value)
         self.lc.subscribe(
@@ -100,11 +106,31 @@ class SimBridge(Node):
         while self.running:
             self.lc.handle_timeout(100)
 
+    def _validate_control_parameters(self):
+        linear_input_max = self.get_parameter("linear_input_max").value
+        angular_input_max = self.get_parameter("angular_input_max").value
+        deadzone = self.get_parameter("yaw_input_deadzone").value
+        magnitude = self.get_parameter("policy_command_magnitude").value
+        timeout = self.get_parameter("command_timeout").value
+        if linear_input_max <= 0.0 or angular_input_max <= 0.0:
+            raise ValueError("cmd_vel input maxima must be positive")
+        if not 0.0 <= deadzone < angular_input_max:
+            raise ValueError(
+                "yaw input limits must satisfy 0 <= deadzone < maximum")
+        if magnitude <= 0.0:
+            raise ValueError("policy_command_magnitude must be positive")
+        if timeout <= 0.0:
+            raise ValueError("command_timeout must be positive")
+
     def _velocity_callback(self, message):
         self.forward, self.yaw = velocity_to_policy(
             message.linear.x, message.angular.z,
             self.get_parameter("forward_scale").value,
-            self.get_parameter("yaw_scale").value)
+            self.get_parameter("yaw_scale").value,
+            self.get_parameter("linear_input_max").value,
+            self.get_parameter("angular_input_max").value,
+            self.get_parameter("yaw_input_deadzone").value,
+            self.get_parameter("policy_command_magnitude").value)
         self.last_command = time.monotonic()
         self.stop = False
 

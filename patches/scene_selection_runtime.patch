@@ -1,0 +1,93 @@
+diff --git a/run.sh b/run.sh
+old mode 100644
+new mode 100755
+diff --git a/scripts/run_mujoco.sh b/scripts/run_mujoco.sh
+index f0ad034fb14bec0500a70253dcff888dc283435f..a6eefde99633633512c085d716c94fe614c09957 100644
+--- a/scripts/run_mujoco.sh
++++ b/scripts/run_mujoco.sh
+@@ -33,9 +33,50 @@ mujoco_dir="$ROOT_DIR/simulation/mujoco"
+ install_dir="$mujoco_dir/build"
+ cd $install_dir
+ 
+-# Runs executable files
+-if [ $# -gt 0 ]; then
+-    ./engineai_robotics_simulation_mujoco "$1"
++# The simulation is the only place where a world is selected. Other ROS 2
++# processes discover this state and must not repeat a scene/map argument.
++robot_name="${1:-}"
++scene_name="${2:-${ENGINEAI_LIDAR_SCENE:-default}}"
++case "$scene_name" in
++    default)
++        unset ENGINEAI_LIDAR_SCENE
++        ;;
++    wall|scan|sudden|stage3_office|stage3_warehouse|stage3_mixed)
++        export ENGINEAI_LIDAR_SCENE="$scene_name"
++        ;;
++    *)
++        echo "[ERROR] Unknown MuJoCo scene: $scene_name" >&2
++        exit 2
++        ;;
++esac
++
++state_file="${ENGINEAI_SCENE_STATE_FILE:-/tmp/engineai_active_scene_$(id -u)}"
++sim_pid=""
++cleanup() {
++    if [ -n "$sim_pid" ] && kill -0 "$sim_pid" 2>/dev/null; then
++        kill -TERM "$sim_pid" 2>/dev/null || true
++        wait "$sim_pid" 2>/dev/null || true
++    fi
++    if [ -f "$state_file" ] && grep -qx "pid=$$" "$state_file"; then
++        rm -f "$state_file"
++    fi
++}
++trap cleanup EXIT INT TERM
++
++if [ -n "$robot_name" ]; then
++    ./engineai_robotics_simulation_mujoco "$robot_name" &
+ else
+-    ./engineai_robotics_simulation_mujoco
++    ./engineai_robotics_simulation_mujoco &
+ fi
++sim_pid=$!
++state_tmp="${state_file}.$$"
++{
++    printf 'version=1\n'
++    printf 'scene=%s\n' "$scene_name"
++    printf 'robot=%s\n' "${robot_name:-default}"
++    printf 'pid=%s\n' "$$"
++    printf 'sim_pid=%s\n' "$sim_pid"
++} > "$state_tmp"
++mv -f "$state_tmp" "$state_file"
++echo "[INFO] Active MuJoCo scene: $scene_name"
++wait "$sim_pid"
+diff --git a/scripts/start_controller.sh b/scripts/start_controller.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..44f0a7ce6438b446b063a6dc3d367ceb03be6e68
+--- /dev/null
++++ b/scripts/start_controller.sh
+@@ -0,0 +1,11 @@
++#!/bin/bash
++set -e
++
++SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
++ROOT_DIR="$(dirname "$SCRIPT_DIR")"
++
++# Navigation control is an optional guarded input to the official controller.
++# Keep the switch here so users never need to repeat it at the terminal.
++export ENGINEAI_LIDAR_CONTROL=1
++cd "$ROOT_DIR"
++exec bash ./run.sh t800pro
+diff --git a/scripts/start_gamepad.sh b/scripts/start_gamepad.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..8e15a3bbe45f2c9760fb98b32392e69cba30b5ec
+--- /dev/null
++++ b/scripts/start_gamepad.sh
+@@ -0,0 +1,8 @@
++#!/bin/bash
++set -e
++
++SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
++ROOT_DIR="$(dirname "$SCRIPT_DIR")"
++
++cd "$ROOT_DIR"
++exec python3 tools/virtual_gamepad/virtual_gamepad.py

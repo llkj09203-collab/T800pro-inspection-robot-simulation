@@ -1,0 +1,5 @@
+# Nav2 uses several separate ROS 2 processes. CycloneDDS' small default
+# participant-index search range can otherwise be exhausted before RViz starts.
+if [ -z "${CYCLONEDDS_URI:-}" ]; then
+  export CYCLONEDDS_URI='<CycloneDDS xmlns="https://cdds.io/config"><Domain id="any"><Discovery><ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>100</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>'
+fi

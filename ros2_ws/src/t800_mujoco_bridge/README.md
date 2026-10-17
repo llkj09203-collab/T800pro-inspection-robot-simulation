@@ -19,3 +19,19 @@ Public ROS interfaces:
 - `/tf` and `/tf_static`
 - `/cmd_vel` input (`geometry_msgs/msg/Twist`)
 - `/reset_simulation` (`std_srvs/srv/Trigger`)
+
+## Velocity conversion
+
+`/cmd_vel` carries standard ROS linear velocity (m/s) and angular velocity
+(rad/s). The EngineAI walking controller used by this simulation accepts a
+normalized policy command instead of those SI units. The bridge therefore:
+
+- blocks negative linear commands so navigation is forward-only;
+- compensates for the steering input dead zone;
+- divides each axis by `linear_input_max` or `angular_input_max` so values
+  with different SI units become a dimensionless direction;
+- preserves the resulting forward/turn ratio and scales the combined vector
+  to `policy_command_magnitude`.
+
+The policy values in `config/bridge.yaml` must not be interpreted as measured
+robot velocity.

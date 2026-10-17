@@ -1,14 +1,19 @@
 import os
 
+import yaml
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
-    DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable,
+    DeclareLaunchArgument, IncludeLaunchDescription, LogInfo,
+    SetEnvironmentVariable,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from nav2_common.launch import ReplaceString, RewrittenYaml
 from launch_ros.actions import Node
+
+from t800_stage3_navigation.scene_selection import resolve_scene_map
 
 
 def generate_launch_description():
@@ -17,52 +22,31 @@ def generate_launch_description():
         '<ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>'
         '</Discovery></Domain></CycloneDDS>')
     navigation_share = get_package_share_directory("t800_stage3_navigation")
+    active_scene, selected_map = resolve_scene_map(navigation_share)
     bridge_share = get_package_share_directory("t800_mujoco_bridge")
     nav2_share = get_package_share_directory("nav2_bringup")
     default_params = os.path.join(nav2_share, "params", "nav2_params.yaml")
-    map_arg = DeclareLaunchArgument(
-        "map",
-        description=(
-            "Absolute path to the YAML map matching the active MuJoCo scene; "
-            "no map is selected implicitly"),
-    )
+    overrides_file = os.path.join(
+        navigation_share, "config", "nav2_overrides.yaml")
+    with open(overrides_file, "r", encoding="utf-8") as stream:
+        navigation_overrides = yaml.safe_load(stream)
+    parameter_rewrites = {
+        name: str(value)
+        for name, value in navigation_overrides["parameter_rewrites"].items()
+    }
     params_arg = DeclareLaunchArgument("params_file", default_value=default_params)
     velocity_params = ReplaceString(
         source_file=LaunchConfiguration("params_file"),
-        replacements={
-            "    alpha1: 0.2": (
-                "    set_initial_pose: true\n"
-                "    initial_pose: {x: 0.0, y: 0.0, z: 0.0, yaw: 0.0}\n"
-                "    alpha1: 0.2"),
-            "max_velocity: [0.26, 0.0, 1.0]": "max_velocity: [0.5, 0.0, 0.5]",
-            "min_velocity: [-0.26, 0.0, -1.0]": "min_velocity: [-0.5, 0.0, -0.5]",
-        })
+        replacements=navigation_overrides["text_replacements"])
     configured_params = RewrittenYaml(
         source_file=velocity_params,
         root_key="",
-        param_rewrites={
-            "base_frame_id": "base_link",
-            "robot_base_frame": "base_link",
-            "bt_loop_duration": "100",
-            "default_server_timeout": "1000",
-            "controller_frequency": "10.0",
-            "transform_tolerance": "0.5",
-            "z_resolution": "0.15",
-            "max_vel_x": "0.5",
-            "min_vel_x": "0.0",
-            "max_vel_theta": "0.5",
-            "max_speed_xy": "0.5",
-            "xy_goal_tolerance": "0.20",
-            "yaw_goal_tolerance": "3.14",
-            "vx_samples": "10",
-            "vtheta_samples": "10",
-            "expected_planner_frequency": "1.0",
-        },
+        param_rewrites=parameter_rewrites,
         convert_types=True)
     bringup = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(nav2_share, "launch", "bringup_launch.py")),
         launch_arguments={
-            "map": LaunchConfiguration("map"),
+            "map": selected_map,
             "params_file": configured_params,
             "use_sim_time": "false",
             "autostart": "true",
@@ -86,7 +70,9 @@ def generate_launch_description():
     )
     return LaunchDescription([
         SetEnvironmentVariable("CYCLONEDDS_URI", cyclone_config),
-        map_arg,
+        LogInfo(msg=(
+            f'Using navigation map for MuJoCo scene "{active_scene["scene"]}": '
+            f"{selected_map}")),
         params_arg,
         bridge,
         scan_converter,
