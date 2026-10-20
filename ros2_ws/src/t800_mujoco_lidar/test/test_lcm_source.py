@@ -4,7 +4,7 @@ import time
 from t800_mujoco_lidar.lcm_source import LatestState
 
 
-def make_state(scenario="stage3_mixed", stamp=None):
+def make_state(scenario="mixed", stamp=None):
     return json.dumps({
         "version": 3,
         "scenario": scenario,
@@ -14,16 +14,16 @@ def make_state(scenario="stage3_mixed", stamp=None):
 
 def test_accepts_scenario_reported_by_mujoco():
     latest = LatestState(timeout=0.8)
-    latest.receive("lidar/state", make_state("stage3_office"))
-    assert latest.get()["scenario"] == "stage3_office"
+    latest.receive("lidar/state", make_state("office"))
+    assert latest.get()["scenario"] == "office"
 
 
 def test_newer_scenario_replaces_previous_state():
     latest = LatestState(timeout=0.8)
     now = time.time()
-    latest.receive("lidar/state", make_state("stage3_office", now - 0.02))
-    latest.receive("lidar/state", make_state("stage3_warehouse", now - 0.01))
-    assert latest.get()["scenario"] == "stage3_warehouse"
+    latest.receive("lidar/state", make_state("office", now - 0.02))
+    latest.receive("lidar/state", make_state("warehouse", now - 0.01))
+    assert latest.get()["scenario"] == "warehouse"
 
 
 def test_rejects_missing_scenario():

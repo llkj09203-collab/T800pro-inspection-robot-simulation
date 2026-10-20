@@ -1,0 +1,24 @@
+<mujoco model="t800pro_lidar_mixed">
+  <include file="robot/t800pro/xml/serial_t800pro.xml"/>
+  <include file="environment/navigation_ground.xml"/>
+  <custom><text name="lidar_scenario" data="mixed"/></custom>
+  <worldbody>
+    <site name="P00" type="cylinder" pos="0 0 0.02" size="0.18 0.02" rgba="0.15 0.85 0.25 1"/>
+    <site name="P01" type="cylinder" pos="6 -1 0.02" size="0.18 0.02" rgba="0.90 0.20 0.20 1"/>
+    <geom name="mixed_north" type="box" pos="0 6 1.5" size="8 0.1 1.5" group="5" rgba="0.66 0.70 0.73 1"/>
+    <geom name="mixed_south" type="box" pos="0 -6 1.5" size="8 0.1 1.5" group="5" rgba="0.66 0.70 0.73 1"/>
+    <geom name="mixed_west" type="box" pos="-8 0 1.5" size="0.1 6 1.5" group="5" rgba="0.66 0.70 0.73 1"/>
+    <geom name="mixed_east" type="box" pos="8 0 1.5" size="0.1 6 1.5" group="5" rgba="0.66 0.70 0.73 1"/>
+    <!-- Doorway, L corner, staggered corridor and height-varied targets. -->
+    <geom name="mixed_door_left" type="box" pos="-5.25 1.8 1.5" size="2.75 0.1 1.5" group="5" rgba="0.48 0.56 0.64 1"/>
+    <geom name="mixed_door_right" type="box" pos="-0.7 1.8 1.5" size="0.7 0.1 1.5" group="5" rgba="0.48 0.56 0.64 1"/>
+    <geom name="mixed_l_vertical" type="box" pos="1.8 3.9 1.5" size="0.1 2.1 1.5" group="5" rgba="0.48 0.56 0.64 1"/>
+    <geom name="mixed_l_horizontal" type="box" pos="4.4 1.9 1.5" size="2.6 0.1 1.5" group="5" rgba="0.48 0.56 0.64 1"/>
+    <geom name="mixed_corridor_a" type="box" pos="-3.2 -2.4 1.5" size="2.2 0.1 1.5" group="5" rgba="0.48 0.56 0.64 1"/>
+    <geom name="mixed_corridor_b" type="box" pos="2.8 -3.7 1.5" size="0.1 2.3 1.5" group="5" rgba="0.48 0.56 0.64 1"/>
+    <geom name="mixed_box_low" type="box" pos="5.7 -3.9 0.25" size="0.6 0.6 0.25" group="5" rgba="0.78 0.38 0.18 1"/>
+    <geom name="mixed_box_mid" type="box" pos="-6.2 4.0 0.65" size="0.55 0.55 0.65" group="5" rgba="0.25 0.65 0.38 1"/>
+    <geom name="mixed_box_tall" type="box" pos="5.8 4.4 1.25" size="0.55 0.55 1.25" group="5" rgba="0.35 0.42 0.82 1"/>
+    <geom name="mixed_column_round" type="cylinder" pos="-1.2 -4.5 1.5" size="0.25 1.5" group="5" rgba="0.88 0.68 0.18 1"/>
+  </worldbody>
+</mujoco>

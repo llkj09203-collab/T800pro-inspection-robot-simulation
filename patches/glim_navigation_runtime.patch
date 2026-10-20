@@ -1,0 +1,148 @@
+diff --git a/docker/dockerfiles/Dockerfile.glim b/docker/dockerfiles/Dockerfile.glim
+new file mode 100644
+index 0000000..f8ab487
+--- /dev/null
++++ b/docker/dockerfiles/Dockerfile.glim
+@@ -0,0 +1,29 @@
++# Optional GLIM extension for the T800 navigation development environment.
++# The EngineAI base image is built first and remains usable without this layer.
++ARG BASE_IMAGE=engineai_robotics_env:humble-desktop-local
++FROM ${BASE_IMAGE}
++
++ARG USER_NAME
++
++USER root
++RUN apt-get update && \
++    apt-get install -y --no-install-recommends ca-certificates curl gpg && \
++    curl -fsSL --compressed \
++        https://koide3.github.io/ppa/ubuntu2204/KEY.gpg \
++        | gpg --dearmor -o /etc/apt/trusted.gpg.d/koide3_ppa.gpg && \
++    echo "deb [signed-by=/etc/apt/trusted.gpg.d/koide3_ppa.gpg] https://koide3.github.io/ppa/ubuntu2204 ./" \
++        > /etc/apt/sources.list.d/koide3_ppa.list && \
++    apt-get update && \
++    apt-get install -y --no-install-recommends \
++        libboost-all-dev \
++        libglfw3-dev \
++        libgtsam-notbb-dev=4.3.0 \
++        libiridescence-dev=1.0.2 \
++        libmetis-dev \
++        libgtsam-points-dev=1.2.2 \
++        ros-humble-glim=1.2.2-0jammy \
++        ros-humble-glim-ros=1.2.2-0jammy && \
++    ldconfig && \
++    rm -rf /var/lib/apt/lists/*
++
++USER ${USER_NAME}
+diff --git a/docker/dockerfiles/docker-compose.glim.yml b/docker/dockerfiles/docker-compose.glim.yml
+new file mode 100644
+index 0000000..39ab0df
+--- /dev/null
++++ b/docker/dockerfiles/docker-compose.glim.yml
+@@ -0,0 +1,9 @@
++services:
++  ros_dev:
++    build:
++      context: .
++      dockerfile: Dockerfile.glim
++      args:
++        BASE_IMAGE: ${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG}
++        USER_NAME: ${USER_NAME}
++    image: ${LOCAL_IMAGE_NAME}:humble-glim-local
+diff --git a/docker/generate.sh b/docker/generate.sh
+index e290f85..016aa67 100644
+--- a/docker/generate.sh
++++ b/docker/generate.sh
+@@ -11,6 +11,7 @@ USER_HOME="$HOME"
+ 
+ # --- Config constants ---
+ NVIDIA_GPU_AVAILABLE="n"
++WITH_GLIM="${WITH_GLIM:-n}"
+ WORKSPACE_DIR="${SCRIPT_DIR}/../"
+ PROJECT_NAME="engineai_robotics_env"
+ SOURCE_IMAGE="ghcr.io/engineai-robotics/engineai_robotics_env:latest"
+@@ -70,6 +71,13 @@ fi
+ cd "${PROJECT_DIR}" || exit 1
+ docker compose ${COMPOSE_FILES} build --no-cache
+ 
++if [ "$WITH_GLIM" = "y" ]; then
++  cp "${DOCKERFILES_DIR}/Dockerfile.glim" "${PROJECT_DIR}/"
++  cp "${DOCKERFILES_DIR}/docker-compose.glim.yml" "${PROJECT_DIR}/"
++  COMPOSE_FILES="${COMPOSE_FILES} -f docker-compose.glim.yml"
++  docker compose ${COMPOSE_FILES} build --no-cache
++fi
++
+ # --- Install dev-env script ---
+ INSTALL_PATH="${USER_HOME}/.local/bin"
+ DEV_ENV_SCRIPT="${INSTALL_PATH}/${PROJECT_NAME}"
+diff --git a/scripts/run_mujoco.sh b/scripts/run_mujoco.sh
+index a6eefde..7350a11 100644
+--- a/scripts/run_mujoco.sh
++++ b/scripts/run_mujoco.sh
+@@ -37,11 +37,18 @@ cd $install_dir
+ # processes discover this state and must not repeat a scene/map argument.
+ robot_name="${1:-}"
+ scene_name="${2:-${ENGINEAI_LIDAR_SCENE:-default}}"
++case "$scene_name" in
++    # Backward-compatible aliases for launch files and scripts from the old
++    # development-stage naming scheme.
++    stage3_office) scene_name="office" ;;
++    stage3_warehouse) scene_name="warehouse" ;;
++    stage3_mixed) scene_name="mixed" ;;
++esac
+ case "$scene_name" in
+     default)
+         unset ENGINEAI_LIDAR_SCENE
+         ;;
+-    wall|scan|sudden|stage3_office|stage3_warehouse|stage3_mixed)
++    wall|scan|sudden|office|warehouse|mixed)
+         export ENGINEAI_LIDAR_SCENE="$scene_name"
+         ;;
+     *)
+diff --git a/simulation/mujoco/lidar_bridge.h b/simulation/mujoco/lidar_bridge.h
+index 70d7d00..67ca853 100644
+--- a/simulation/mujoco/lidar_bridge.h
++++ b/simulation/mujoco/lidar_bridge.h
+@@ -103,7 +103,7 @@ class LidarBridge {
+         wall - last_wall_ < 0.1) return;
+     last_sim_ = data->time;
+     last_wall_ = wall;
+-    // The stage-3 depth camera is used only as the rigid lidar mount frame here.
++    // The depth camera is used only as the rigid lidar mount frame here.
+     const int sensor_mount = mj_name2id(model, mjOBJ_CAMERA, "depth");
+     const int base = mj_name2id(model, mjOBJ_BODY, "LINK_BASE");
+     const int head_pitch = mj_name2id(model, mjOBJ_BODY, "LINK_HEAD_PITCH");
+@@ -115,8 +115,7 @@ class LidarBridge {
+         ? "default"
+         : std::string(model->text_data + model->text_adr[scene]);
+     if (scenario != "default" && scenario != "wall" && scenario != "scan" && scenario != "sudden" &&
+-        scenario != "stage3_office" && scenario != "stage3_warehouse" &&
+-        scenario != "stage3_mixed") return;
++        scenario != "office" && scenario != "warehouse" && scenario != "mixed") return;
+     const int box = mj_name2id(model, mjOBJ_BODY, "sudden_obstacle");
+     const int mocap = box < 0 ? -1 : model->body_mocapid[box];
+     const bool placed = mocap >= 0 && data->mocap_pos[3*mocap+2] > 0;
+diff --git a/simulation/mujoco/main.cc b/simulation/mujoco/main.cc
+index b716248..7264062 100644
+--- a/simulation/mujoco/main.cc
++++ b/simulation/mujoco/main.cc
+@@ -656,14 +656,15 @@ int main(int argc, char** argv) {
+     }
+     const std::string name(scene);
+     if (name != "wall" && name != "scan" && name != "sudden" &&
+-        name != "stage3_office" && name != "stage3_warehouse" && name != "stage3_mixed") {
+-      LOG(ERROR) << "ENGINEAI_LIDAR_SCENE must be wall, scan, sudden, stage3_office, "
+-                    "stage3_warehouse or stage3_mixed";
++        name != "office" && name != "warehouse" && name != "mixed") {
++      LOG(ERROR) << "ENGINEAI_LIDAR_SCENE must be wall, scan, sudden, office, "
++                    "warehouse or mixed";
+       return 1;
+     }
+     const std::string robot(argv[1]);
+-    if (name.rfind("stage3_", 0) == 0 && robot != "t800pro") {
+-      LOG(ERROR) << "Stage-3 mapping scenes are defined for t800pro only";
++    if ((name == "office" || name == "warehouse" || name == "mixed") &&
++        robot != "t800pro") {
++      LOG(ERROR) << "Mapping scenes are defined for t800pro only";
+       return 1;
+     }
+     filename = common::PathJoin(common::GlobalPathManager::GetInstance().GetResourcePath(),

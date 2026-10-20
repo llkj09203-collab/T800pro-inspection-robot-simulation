@@ -1,7 +1,0 @@
-image: stage3_groundfix.pgm
-mode: trinary
-resolution: 0.1
-origin: [-8.4, -7.4, 0]
-negate: 0
-occupied_thresh: 0.99
-free_thresh: 0.98
