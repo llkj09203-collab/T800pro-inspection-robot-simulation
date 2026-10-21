@@ -138,7 +138,7 @@ controller_server:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.20
-      yaw_goal_tolerance: 3.141593
+      yaw_goal_tolerance: 0.261799  # 15 degrees
     # DWB parameters
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"

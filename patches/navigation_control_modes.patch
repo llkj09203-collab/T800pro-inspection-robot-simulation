@@ -1,0 +1,207 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 54f51b0..7557b73 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -15,6 +15,9 @@ list(APPEND CMAKE_PREFIX_PATH ${ENGINEAI_ROBOTICS_THIRD_PARTY})
+ find_package(GTest REQUIRED)
+ find_package(glog REQUIRED)
+ find_package(yaml-cpp REQUIRED)
++if(TARGET yaml-cpp AND NOT TARGET yaml-cpp::yaml-cpp)
++  add_library(yaml-cpp::yaml-cpp ALIAS yaml-cpp)
++endif()
+ find_package(fmt REQUIRED)
+ find_package(Eigen3 REQUIRED)
+ find_package(lcm REQUIRED)
+diff --git a/core/include/data/navigation_command_state/navigation_command_state.h b/core/include/data/navigation_command_state/navigation_command_state.h
+new file mode 100644
+index 0000000..64bb6ca
+--- /dev/null
++++ b/core/include/data/navigation_command_state/navigation_command_state.h
+@@ -0,0 +1,19 @@
++#pragma once
++
++namespace data {
++
++enum class MotionCommandSource {
++  kManual,
++  kAutonomous,
++};
++
++struct NavigationCommandState {
++  double updated_at = 0.0;
++  MotionCommandSource source = MotionCommandSource::kManual;
++  bool stop_requested = false;
++};
++
++inline constexpr char kNavigationCommandStateKey[] =
++    "navigation/command_state";
++
++}  // namespace data
+diff --git a/src/runner/input_command_arbiter/include/input_command_arbiter/lidar_command_gate.h b/src/runner/input_command_arbiter/include/input_command_arbiter/lidar_command_gate.h
+index 83379ab..b229b4a 100644
+--- a/src/runner/input_command_arbiter/include/input_command_arbiter/lidar_command_gate.h
++++ b/src/runner/input_command_arbiter/include/input_command_arbiter/lidar_command_gate.h
+@@ -12,6 +12,7 @@
+ #include <lcm/lcm-cpp.hpp>
+ #include "gamepad_info/gamepad_info.h"
+ #include "lcm_param/lcm_param.h"
++#include "navigation_command_state/navigation_command_state.h"
+ #include "variant_store/variant_store.h"
+ 
+ namespace runner {
+@@ -28,6 +29,8 @@ class LidarCommandGate {
+                                    std::to_string(param.multicast ? param.ttl : 0));
+     if (lcm_->good()) {
+       lcm_->subscribe("lidar/control", &LidarCommandGate::Receive, this)->setQueueCapacity(1);
++      lcm_->subscribe("lidar/control_mode", &LidarCommandGate::ReceiveMode, this)
++          ->setQueueCapacity(1);
+     }
+   }
+ 
+@@ -36,14 +39,21 @@ class LidarCommandGate {
+     if (lcm_->good()) {
+       for (int i = 0; i < 4 && lcm_->handleTimeout(0) > 0; ++i) {}
+     }
++    // Manual mode deliberately leaves the selected hardware/virtual gamepad
++    // input untouched. Autonomous mode exclusively owns the motion axes and
++    // fails closed when its velocity heartbeat expires.
+     const double now = SteadySeconds();
++    if (!auto_mode_) {
++      PublishCommandState(now, data::MotionCommandSource::kManual, false);
++      return;
++    }
+     const bool stop = stop_ || now - received_ > 0.5 || !lcm_->good();
+     // Digital keys stay available for stand/walk/passive transitions.
+     input.LeftStick_X = stop ? 0.0 : forward_;
+     input.LeftStick_Y = 0.0;
+     input.RightStick_X = 0.0;
+     input.RightStick_Y = stop ? 0.0 : yaw_;
+-    data::VariantStore::GetInstance().Set("lidar/gate", std::make_pair(now, stop));
++    PublishCommandState(now, data::MotionCommandSource::kAutonomous, stop);
+     if (now - last_status_ >= 0.1 && lcm_->good()) {
+       last_status_ = now;
+       // Motion task names are fixed by SDK configuration; quote only known walk state.
+@@ -53,6 +63,7 @@ class LidarCommandGate {
+           std::chrono::system_clock::now().time_since_epoch()).count();
+       out << std::setprecision(16) << "{\"version\":1,\"stamp\":" << wall
+           << ",\"stop\":" << (stop ? "true" : "false")
++          << ",\"auto\":true"
+           << ",\"walk\":" << (motion == "walk" ? "true" : "false")
+           << ",\"forward\":" << input.LeftStick_X << ",\"yaw\":" << input.RightStick_Y << "}";
+       const auto bytes = out.str();
+@@ -61,6 +72,13 @@ class LidarCommandGate {
+   }
+ 
+  private:
++  static void PublishCommandState(double now, data::MotionCommandSource source,
++                                  bool stop_requested) {
++    data::VariantStore::GetInstance().Set(
++        data::kNavigationCommandStateKey,
++        data::NavigationCommandState{now, source, stop_requested});
++  }
++
+   static double SteadySeconds() {
+     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+   }
+@@ -83,7 +101,28 @@ class LidarCommandGate {
+     yaw_ = yaw;
+     stop_ = stop != 0;
+   }
+-  bool enabled_ = false, stop_ = true;
++  void ReceiveMode(const lcm::ReceiveBuffer* buffer, const std::string&) {
++    if (buffer->data_size > 96) return;
++    std::istringstream in(std::string(static_cast<const char*>(buffer->data), buffer->data_size));
++    in.imbue(std::locale::classic());
++    std::string version, trailing;
++    double stamp;
++    int auto_mode;
++    if (!(in >> version >> stamp >> auto_mode) || (in >> trailing)) return;
++    const double wall = std::chrono::duration<double>(
++        std::chrono::system_clock::now().time_since_epoch()).count();
++    if (version != "LIDARMODE1" || !std::isfinite(stamp) ||
++        (auto_mode != 0 && auto_mode != 1) || wall - stamp > 0.5 ||
++        stamp - wall > 0.1 || stamp <= mode_stamp_) return;
++    mode_stamp_ = stamp;
++    auto_mode_ = auto_mode != 0;
++    if (!auto_mode_) {
++      stop_ = true;
++      forward_ = yaw_ = 0.0;
++    }
++  }
++  bool enabled_ = false, auto_mode_ = false, stop_ = true;
++  double mode_stamp_ = 0;
+   double received_ = -1e30, stamp_ = 0, last_status_ = 0, forward_ = 0, yaw_ = 0;
+   std::unique_ptr<lcm::LCM> lcm_;
+ };
+diff --git a/src/runner/rl_walking_example/src/rl_walking_example_runner.cc b/src/runner/rl_walking_example/src/rl_walking_example_runner.cc
+index d5a4e18..2dd7f41 100644
+--- a/src/runner/rl_walking_example/src/rl_walking_example_runner.cc
++++ b/src/runner/rl_walking_example/src/rl_walking_example_runner.cc
+@@ -30,6 +30,8 @@
+ 
+ #include "rl_walking_example/rl_walking_example_runner.h"
+ 
++#include "navigation_command_state/navigation_command_state.h"
++
+ #include <glog/logging.h>
+ #include <chrono>
+ #include <cstdlib>
+@@ -315,22 +317,39 @@ void RlWalkingExamplePm01Runner::UpdateRemoteCommand() {
+                      ? gamepad->RightStick_Y * param_->command_scale_pos.z()
+                      : gamepad->RightStick_Y * param_->command_scale_neg.z();
+ 
+-  // Optional: apply low-pass filtering to smooth the input
+-  if (param_->enable_remote_command_lpf) {
+-    command_ = lpf_command_->Update(command_);
+-  }
+-
+-  // Stop after filtering so a lidar stop cannot leave a residual velocity command.
+-  // Also fail closed if the input arbiter itself stops updating.
++  // Navigation reuses the gamepad data path, but its velocity has already been
++  // shaped by Nav2. Keep the SDK's low-pass filter for physical/virtual
++  // gamepads and deliberately bypass it for autonomous commands.
+   static const bool lidar_enabled = [] {
+     const char* value = std::getenv("ENGINEAI_LIDAR_CONTROL");
+     return value && std::string(value) == "1";
+   }();
++
++  const auto navigation_state =
++      lidar_enabled
++          ? data::VariantStore::GetInstance().Get<data::NavigationCommandState>(
++                data::kNavigationCommandStateKey)
++          : nullptr;
++  const bool autonomous_command =
++      navigation_state && navigation_state->source ==
++                              data::MotionCommandSource::kAutonomous;
++
++  if (param_->enable_remote_command_lpf && !autonomous_command) {
++    command_ = lpf_command_->Update(command_);
++  } else if (autonomous_command) {
++    // Do not carry a previous manual filter state across a mode transition.
++    lpf_command_->Reset();
++  }
++
++  // Stop after selecting the input policy so an expired navigation heartbeat
++  // cannot leave a residual velocity command.
+   if (lidar_enabled) {
+-    const auto gate = data::VariantStore::GetInstance().Get<std::pair<double, bool>>("lidar/gate");
+     const double now = std::chrono::duration<double>(
+         std::chrono::steady_clock::now().time_since_epoch()).count();
+-    if (!gate || gate->second || now - gate->first > 0.5) {
++    const bool navigation_stopped =
++        !navigation_state || navigation_state->stop_requested ||
++        now - navigation_state->updated_at > 0.5;
++    if (navigation_stopped) {
+       command_.setZero();
+       lpf_command_->Reset();
+     }
+@@ -338,7 +357,8 @@ void RlWalkingExamplePm01Runner::UpdateRemoteCommand() {
+     // policy after the lidar gate and low-pass filter have both run.
+     static int lidar_trace_tick = 0;
+     if (++lidar_trace_tick % 10 == 0) {
+-      LOG(INFO) << "[lidar walk] gate_stop=" << (!gate || gate->second)
++      LOG(INFO) << "[lidar walk] gate_stop=" << navigation_stopped
++                << " autonomous=" << autonomous_command
+                 << " command_x=" << command_.x()
+                 << " command_y=" << command_.y()
+                 << " command_yaw=" << command_.z()

@@ -1,0 +1,14 @@
+<library path="t800_waypoint_rviz_plugins">
+  <class
+    name="t800_waypoint_rviz_plugins/Add Waypoint"
+    type="t800_waypoint_rviz_plugins::AddWaypointTool"
+    base_class_type="rviz_common::Tool">
+    <description>Add a named T800 waypoint at the clicked map position.</description>
+  </class>
+  <class
+    name="t800_waypoint_rviz_plugins/Waypoint Panel"
+    type="t800_waypoint_rviz_plugins::WaypointPanel"
+    base_class_type="rviz_common::Panel">
+    <description>Edit, save and execute T800 waypoint routes.</description>
+  </class>
+</library>

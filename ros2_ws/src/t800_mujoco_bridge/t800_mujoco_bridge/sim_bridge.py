@@ -64,6 +64,7 @@ class SimBridge(Node):
         self.declare_parameter("angular_input_max", 0.5)
         self.declare_parameter("yaw_input_deadzone", 0.08)
         self.declare_parameter("policy_command_magnitude", 0.5)
+        self.declare_parameter("navigation_mode_default", False)
         self.declare_parameter("imu_angular_velocity_noise_stddev", 0.0)
         self.declare_parameter("imu_linear_acceleration_noise_stddev", 0.0)
         self.declare_parameter("imu_dropout_probability", 0.0)
@@ -85,12 +86,18 @@ class SimBridge(Node):
         self.static_transforms_sent = False
         self.create_subscription(Twist, "cmd_vel", self._velocity_callback, 10)
         self.create_service(Trigger, "reset_simulation", self._reset_simulation)
+        self.create_service(
+            Trigger, "t800/control/set_manual", self._set_manual_control)
+        self.create_service(
+            Trigger, "t800/control/set_auto", self._set_navigation_control)
 
         self.last_command = 0.0
         self.previous_pose = None
         self.previous_sim_time = None
         self.forward = self.yaw = 0.0
         self.stop = True
+        self.auto_mode = bool(
+            self.get_parameter("navigation_mode_default").value)
         self.reset_sequence = 0
         self.reset_ack = 0
         self.reset_event = threading.Event()
@@ -100,7 +107,8 @@ class SimBridge(Node):
         self.thread.start()
         self.create_timer(0.02, self._publish_command)
         self.get_logger().info(
-            "MuJoCo bridge ready: odom, IMU, TF and guarded cmd_vel")
+            "MuJoCo bridge ready in %s mode: odom, IMU, TF and guarded cmd_vel" %
+            ("AUTO" if self.auto_mode else "MANUAL"))
 
     def _lcm_loop(self):
         while self.running:
@@ -135,12 +143,37 @@ class SimBridge(Node):
         self.stop = False
 
     def _publish_command(self):
+        mode_packet = (
+            f"LIDARMODE1 {time.time():.6f} {int(self.auto_mode)}")
+        self.lc.publish("lidar/control_mode", mode_packet.encode("ascii"))
         timed_out = time.monotonic() - self.last_command > self.get_parameter(
             "command_timeout").value
-        forward, yaw = ((0.0, 0.0) if self.stop or timed_out
+        stopped = self.stop or timed_out or not self.auto_mode
+        forward, yaw = ((0.0, 0.0) if stopped
                         else (self.forward, self.yaw))
-        packet = f"LIDAR1 {time.time():.6f} {forward:.6f} {yaw:.6f} {int(self.stop or timed_out)}"
+        packet = f"LIDAR1 {time.time():.6f} {forward:.6f} {yaw:.6f} {int(stopped)}"
         self.lc.publish("lidar/control", packet.encode("ascii"))
+
+    def _set_manual_control(self, _request, response):
+        self.auto_mode = False
+        self.stop = True
+        self.forward = self.yaw = 0.0
+        self._publish_command()
+        response.success = True
+        response.message = "MANUAL mode active; remote control owns the motion axes"
+        self.get_logger().info(response.message)
+        return response
+
+    def _set_navigation_control(self, _request, response):
+        self.auto_mode = True
+        self.stop = True
+        self.forward = self.yaw = 0.0
+        self.last_command = 0.0
+        self._publish_command()
+        response.success = True
+        response.message = "AUTO mode active; Nav2 owns the motion axes"
+        self.get_logger().info(response.message)
+        return response
 
     def _reset_ack_callback(self, _channel, payload):
         try:

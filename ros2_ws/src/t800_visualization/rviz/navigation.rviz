@@ -1,14 +1,10 @@
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
-  - Class: rviz_common/Selection
-    Name: Selection
-  - Class: rviz_common/Tool Properties
-    Name: Tool Properties
-  - Class: rviz_common/Views
-    Name: Views
   - Class: nav2_rviz_plugins/Navigation 2
     Name: Navigation 2
+  - Class: t800_waypoint_rviz_plugins/Waypoint Panel
+    Name: T800 Waypoints
 Visualization Manager:
   Class: ""
   Displays:
@@ -139,6 +135,15 @@ Visualization Manager:
       Show Names: false
       Update Interval: 0
       Value: false
+    - Class: rviz_default_plugins/InteractiveMarkers
+      Enable Transparency: true
+      Enabled: true
+      Interactive Markers Namespace: /t800_waypoints
+      Name: T800 Waypoints
+      Show Axes: false
+      Show Descriptions: true
+      Show Visual Aids: true
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -164,6 +169,8 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /initialpose
     - Class: nav2_rviz_plugins/GoalTool
+    - Class: t800_waypoint_rviz_plugins/Add Waypoint
+      Topic: /t800/waypoints/add_pose
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
@@ -191,6 +198,3 @@ Visualization Manager:
       Value: Orbit (rviz)
       Yaw: 0.8
     Saved: ~
-Window Geometry:
-  Height: 900
-  Width: 1400

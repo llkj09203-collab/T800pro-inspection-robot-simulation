@@ -3,7 +3,8 @@
 本仓库保存 T800 Pro 巡检机器人仿真项目自行开发的扩展代码，不包含 EngineAI
 官方 SDK 的完整源码。项目基于 ROS 2 Humble、MuJoCo（机器人动力学仿真器）、
 LCM（轻量通信机制）、GLIM（三维激光惯性建图框架）和 Nav2（ROS 2 导航框架），
-当前包括三维雷达、仿真桥接、通用场景建图导航与 RViz（ROS 可视化工具）配置。
+当前包括三维雷达、仿真桥接、通用场景建图导航、巡检航点任务与 RViz
+（ROS 可视化工具）配置。
 
 ## 仓库内容
 
@@ -14,6 +15,8 @@ ros2_ws/src/
 ├── t800_runtime_environment # ROS 2/DDS 公共运行环境
 ├── t800_simulation         # 按场景命名的 MuJoCo 仿真入口
 ├── t800_navigation         # GLIM/二维建图、定位、点云转换与 Nav2 配置
+├── t800_waypoints          # 航点保存、路线管理与逐点巡检任务
+├── t800_waypoint_rviz_plugins # RViz 航点工具与控制面板
 └── t800_visualization      # 独立 RViz 配置
 scenes/                     # 本项目 mixed、office、warehouse 场景和雷达参数
 patches/                    # 接入官方 SDK 所需的本项目修改
@@ -31,7 +34,8 @@ patches/                    # 接入官方 SDK 所需的本项目修改
 `patches/engineai_native_sdk_integration.patch`以官方 `main` 提交
 `335c60e`为基线生成，`patches/scene_selection_runtime.patch`在其上补充统一场景
 选择和无参数控制器入口，`patches/glim_navigation_runtime.patch`再加入通用场景
-命名及可选 GLIM容器环境。三个补丁都只包含本项目的接口扩展，不包含完整官方源码。
+命名及可选 GLIM容器环境，`patches/navigation_control_modes.patch`补充手动/自主
+控制权切换与导航停机保护。四个补丁都只包含本项目的接口扩展，不包含完整官方源码。
 
 ## 接入官方 SDK
 
@@ -44,6 +48,7 @@ cd engineai_robotics_native_sdk
 git apply /path/to/T800pro-inspection-robot-simulation/patches/engineai_native_sdk_integration.patch
 git apply /path/to/T800pro-inspection-robot-simulation/patches/scene_selection_runtime.patch
 git apply /path/to/T800pro-inspection-robot-simulation/patches/glim_navigation_runtime.patch
+git apply /path/to/T800pro-inspection-robot-simulation/patches/navigation_control_modes.patch
 
 # 3. 安装本项目场景文件
 cp /path/to/T800pro-inspection-robot-simulation/scenes/environment/navigation_ground.xml \
@@ -107,6 +112,15 @@ ros2 launch t800_navigation navigation.launch.py
 # 终端 6：RViz；显示项由用户自行添加或载入配置
 rviz2
 ```
+
+需要在 RViz 中编辑、保存并执行巡检路线时，另外启动：
+
+```bash
+ros2 launch t800_waypoints waypoints.launch.py
+```
+
+在 RViz 中使用 `Add Waypoint` 添加位置，通过 `T800 Waypoints` 面板保存路线、
+启动或停止逐点巡检。手动遥控与自主导航采用显式模式切换，自主指令超时后请求停止。
 
 新场景还没有保存地图时，不启动导航，改用
 `ros2 launch t800_navigation mapping.launch.py` 启动 GLIM 三维建图及二维通行

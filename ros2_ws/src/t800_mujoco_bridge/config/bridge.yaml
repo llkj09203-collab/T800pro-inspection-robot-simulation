@@ -11,6 +11,9 @@ t800_mujoco_bridge:
     yaw_input_deadzone: 0.08
     # Normalized T800 walking-policy magnitude, not an SI velocity.
     policy_command_magnitude: 0.5
+    # Start with remote/virtual-gamepad authority. Switch explicitly to AUTO
+    # through /t800/control/set_auto before starting a navigation mission.
+    navigation_mode_default: false
     imu_angular_velocity_noise_stddev: 0.0
     imu_linear_acceleration_noise_stddev: 0.0
     imu_dropout_probability: 0.0

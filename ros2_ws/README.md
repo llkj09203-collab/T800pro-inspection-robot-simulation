@@ -23,7 +23,7 @@ colcon build --symlink-install
 source install/setup.bash
 colcon test --packages-select \
   t800_mujoco_lidar t800_mujoco_bridge \
-  t800_navigation t800_visualization
+  t800_navigation t800_waypoints t800_visualization
 colcon test-result --verbose
 ```
 
@@ -32,6 +32,7 @@ colcon test-result --verbose
 - `t800_mujoco_lidar`：读取 MuJoCo 状态并发布三维点云 `/lidar/points_raw`。
 - `t800_mujoco_bridge`：在 LCM（轻量通信机制）和 ROS 2 之间转换里程计、IMU、TF 与速度指令。
 - `t800_navigation`：点云转二维激光、建图、定位与 Nav2（ROS 2 导航框架）配置。
+- `t800_waypoints`：RViz 航点编辑、路线保存和逐点巡检任务执行。
 - `t800_visualization`：独立的 RViz 显示配置。
 
 正式导航地图位于 `src/t800_navigation/maps/`。
@@ -70,6 +71,16 @@ ros2 launch t800_navigation navigation.launch.py
 # 终端 6：RViz（显示项由用户自行添加或打开已有配置）
 rviz2
 ```
+
+需要在地图中编辑和保存巡检路线时，另外启动：
+
+```bash
+ros2 launch t800_waypoints waypoints.launch.py
+```
+
+在 RViz 选择 `Add Waypoint` 添加位置、用 `Interact` 拖动或旋转，保存后
+在 `T800 Waypoints` 面板中直接保存、删除、清空、开始或停止巡检，不需要再
+输入服务命令。
 
 `navigation.launch.py` 只用于加载已有地图进行定位和导航，不执行建图。新场景
 使用 `mapping.launch.py` 自动启动 GLIM，并把 `/glim_ros/map` 转换为二维通行

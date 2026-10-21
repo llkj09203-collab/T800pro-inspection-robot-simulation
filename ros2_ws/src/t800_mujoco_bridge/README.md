@@ -19,6 +19,38 @@ Public ROS interfaces:
 - `/tf` and `/tf_static`
 - `/cmd_vel` input (`geometry_msgs/msg/Twist`)
 - `/reset_simulation` (`std_srvs/srv/Trigger`)
+- `/t800/control/set_manual` (`std_srvs/srv/Trigger`)
+- `/t800/control/set_auto` (`std_srvs/srv/Trigger`)
+
+## Control authority
+
+The bridge starts in `MANUAL` mode. In this mode the physical or virtual
+gamepad owns all motion axes and Nav2 commands cannot overwrite them. Switch
+to autonomous navigation explicitly with:
+
+```bash
+ros2 service call /t800/control/set_auto std_srvs/srv/Trigger "{}"
+```
+
+Return control to the remote before teleoperation with:
+
+```bash
+ros2 service call /t800/control/set_manual std_srvs/srv/Trigger "{}"
+```
+
+The RViz `T800 Waypoints` panel exposes the same operations as `Manual
+Control` and `Auto Navigation`. In AUTO mode a stale navigation command stops
+the robot; in MANUAL mode the navigation gate leaves remote motion axes
+untouched. Emergency-stop and motion-state buttons remain available in both
+modes.
+
+Command smoothing follows the selected authority. Manual commands retain the
+EngineAI walking controller's original gamepad low-pass filter. Autonomous
+commands bypass that gamepad-specific filter because Nav2 already applies its
+configured velocity and acceleration smoothing. The navigation heartbeat,
+timeout stop and policy-command magnitude limit remain active in AUTO mode.
+Switching authority resets the gamepad filter state so commands from one mode
+cannot leak into the other.
 
 ## Velocity conversion
 
